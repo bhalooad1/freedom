@@ -75,8 +75,6 @@ dashManifest.get("/:videoId", async (c) => {
             );
 
         const player_response = videoInfo.page[0];
-        // TODO: fix include storyboards in DASH manifest file
-        //const storyboards = player_response.storyboards;
         const captions = player_response.captions?.caption_tracks;
 
         const dashFile = await FormatUtils.toDash(

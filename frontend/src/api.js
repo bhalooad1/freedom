@@ -42,8 +42,3 @@ export function getProxyImageUrl(url) {
 export function getStreamUrl(id) {
   return `${STREAM_BASE}/stream/${id}`;
 }
-
-// DASH manifest for adaptive streaming (enables seeking)
-export function getDashManifestUrl(id) {
-  return `${STREAM_BASE}/api/manifest/dash/id/${id}?local=true`;
-}
