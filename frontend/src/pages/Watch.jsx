@@ -5,6 +5,32 @@ import VideoPlayer from '../components/VideoPlayer';
 import VideoCard from '../components/VideoCard';
 import { getVideo } from '../api';
 
+function formatDate(dateString) {
+  if (!dateString) return '';
+
+  const date = new Date(dateString);
+  if (isNaN(date.getTime())) return dateString;
+
+  const now = new Date();
+  const diffMs = now - date;
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins} minute${diffMins === 1 ? '' : 's'} ago`;
+  if (diffHours < 24) return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
+  if (diffDays === 1) return '1 day ago';
+  if (diffDays === 2) return '2 days ago';
+  if (diffDays === 3) return '3 days ago';
+
+  return date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined
+  });
+}
+
 export default function Watch() {
   const [searchParams] = useSearchParams();
   const videoId = searchParams.get('v');
@@ -122,7 +148,7 @@ export default function Watch() {
                       {video.uploaded && (
                         <>
                           <span>•</span>
-                          <span>{video.uploaded}</span>
+                          <span>{formatDate(video.uploaded)}</span>
                         </>
                       )}
                     </div>

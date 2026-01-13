@@ -7,6 +7,9 @@ const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8787';
 // This CANNOT go through Cloudflare Workers due to YouTube IP validation
 const STREAM_BASE = import.meta.env.VITE_STREAM_URL || 'http://localhost:8788';
 
+// Debug: Log URLs on load (check browser console if issues occur)
+console.log('[Freedom] API:', API_BASE, '| Stream:', STREAM_BASE);
+
 // ========== Cloudflare Worker APIs ==========
 
 export async function search(query) {
