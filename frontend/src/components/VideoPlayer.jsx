@@ -6,6 +6,7 @@ export default function VideoPlayer({ videoId }) {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const retryCountRef = useRef(0);
+  const maxRetries = 4;
 
   useEffect(() => {
     if (!videoRef.current || !videoId) return;
@@ -15,20 +16,31 @@ export default function VideoPlayer({ videoId }) {
     retryCountRef.current = 0;
 
     const video = videoRef.current;
-    video.src = getStreamUrl(videoId);
+
+    // Warm up the server first, then load video
+    const streamUrl = getStreamUrl(videoId);
+    console.log('[VideoPlayer] Warming up server...');
+
+    fetch(streamUrl, { method: 'HEAD' })
+      .catch(() => {}) // Ignore errors, just warming up
+      .finally(() => {
+        console.log('[VideoPlayer] Loading video...');
+        video.src = streamUrl;
+      });
 
     const onCanPlay = () => setLoading(false);
     const onError = () => {
-      // Retry once on initial load failure
-      if (retryCountRef.current < 1) {
+      // Retry with increasing delays for cold starts
+      if (retryCountRef.current < maxRetries) {
         retryCountRef.current++;
-        console.log('[VideoPlayer] Retrying...');
+        const delay = retryCountRef.current * 1500; // 1.5s, 3s, 4.5s, 6s
+        console.log(`[VideoPlayer] Retry ${retryCountRef.current}/${maxRetries} in ${delay}ms...`);
         setTimeout(() => {
           video.src = getStreamUrl(videoId) + '?retry=' + Date.now();
-        }, 1000);
+        }, delay);
       } else {
         setLoading(false);
-        setError('Failed to load video');
+        setError('Failed to load video. Please refresh the page.');
       }
     };
     const onWaiting = () => setLoading(true);
