@@ -133,16 +133,24 @@ app.get("/api/video/:id", async (c) => {
         const metadata = videoInfo.primary_info;
         const secondaryInfo = videoInfo.secondary_info;
 
-        // Get related videos
-        const relatedVideos = videoInfo.related_videos?.slice(0, 10).map((v: any) => ({
-            id: v.id,
-            title: v.title?.text || v.title || "",
-            thumbnail: v.thumbnails?.[0]?.url || "",
-            duration: v.duration?.text || "",
-            views: v.view_count?.text || v.short_view_count?.text || "",
-            channel: v.author?.name || "",
-            uploaded: v.published?.text || "",
-        })) || [];
+        // Get related videos from watch_next_feed
+        const relatedVideos: any[] = [];
+        const watchNext = videoInfo.watch_next_feed || [];
+
+        for (const item of watchNext) {
+            if (relatedVideos.length >= 10) break;
+            if (item.type === "CompactVideo" || item.id) {
+                relatedVideos.push({
+                    id: item.id || item.video_id || "",
+                    title: item.title?.text || item.title?.toString() || "",
+                    thumbnail: item.thumbnails?.[0]?.url || item.best_thumbnail?.url || "",
+                    duration: item.duration?.text || "",
+                    views: item.view_count?.text || item.short_view_count?.text || "",
+                    channel: item.author?.name || item.owner?.name || "",
+                    uploaded: item.published?.text || "",
+                });
+            }
+        }
 
         console.log("[VIDEO-META] Found", relatedVideos.length, "related videos");
 
