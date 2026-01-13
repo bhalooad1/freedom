@@ -18,8 +18,9 @@ export async function search(query) {
   return res.json();
 }
 
+// Video metadata now comes from Deno (more reliable - has PO token auth)
 export async function getVideo(id) {
-  const res = await fetch(`${API_BASE}/api/video/${id}`);
+  const res = await fetch(`${STREAM_BASE}/api/video/${id}`);
   if (!res.ok) throw new Error('Failed to load video');
   return res.json();
 }

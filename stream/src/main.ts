@@ -109,6 +109,62 @@ app.use("*", async (c, next) => {
 app.get("/health", (c) => c.json({ status: "ok" }));
 app.get("/healthz", (c) => c.json({ status: "ok" }));
 
+// Video metadata endpoint - more reliable than Worker (has PO token)
+app.get("/api/video/:id", async (c) => {
+    const id = c.req.param("id");
+    console.log("[VIDEO-META] Request for:", id);
+
+    if (!id || !/^[a-zA-Z0-9_-]{11}$/.test(id)) {
+        return c.json({ error: "Invalid video ID" }, 400);
+    }
+
+    try {
+        // Get video info using innertube
+        const videoInfo = await innertubeClient.getInfo(id);
+
+        if (videoInfo.playability_status?.status !== "OK") {
+            return c.json({
+                error: "Video not playable",
+                reason: videoInfo.playability_status?.reason || "Unknown"
+            }, 403);
+        }
+
+        const details = videoInfo.basic_info;
+        const metadata = videoInfo.primary_info;
+        const secondaryInfo = videoInfo.secondary_info;
+
+        // Get related videos
+        const relatedVideos = videoInfo.related_videos?.slice(0, 10).map((v: any) => ({
+            id: v.id,
+            title: v.title?.text || v.title || "",
+            thumbnail: v.thumbnails?.[0]?.url || "",
+            duration: v.duration?.text || "",
+            views: v.view_count?.text || v.short_view_count?.text || "",
+            channel: v.author?.name || "",
+            uploaded: v.published?.text || "",
+        })) || [];
+
+        console.log("[VIDEO-META] Found", relatedVideos.length, "related videos");
+
+        return c.json({
+            id,
+            title: details.title || "",
+            description: details.short_description || "",
+            channel: details.author || "",
+            channelId: details.channel_id || "",
+            views: details.view_count?.toLocaleString() || "0",
+            likes: metadata?.like_button?.like_count?.toString() || "",
+            uploaded: metadata?.published?.text || "",
+            thumbnail: details.thumbnail?.[0]?.url || "",
+            duration: details.duration?.toString() || "",
+            related: relatedVideos,
+        });
+    } catch (error: any) {
+        console.error("[VIDEO-META] Error:", error.message);
+        return c.json({ error: "Failed to get video", details: error.message }, 500);
+    }
+});
+
 // Stream endpoint - simple proxy to YouTube
 app.get("/stream/:id", async (c) => {
     const id = c.req.param("id");
