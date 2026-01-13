@@ -133,6 +133,9 @@ app.get("/api/video/:id", async (c) => {
         const metadata = videoInfo.primary_info;
         const secondaryInfo = videoInfo.secondary_info;
 
+        // Debug: log available keys
+        console.log("[VIDEO-META] VideoInfo keys:", Object.keys(videoInfo));
+
         // Get related videos from watch_next_feed
         const relatedVideos: any[] = [];
         const watchNext = videoInfo.watch_next_feed || [];
