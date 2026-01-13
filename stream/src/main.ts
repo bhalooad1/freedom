@@ -136,44 +136,53 @@ app.get("/api/video/:id", async (c) => {
         // Debug: log available keys
         console.log("[VIDEO-META] VideoInfo keys:", Object.keys(videoInfo));
 
-        // Get related videos - try multiple methods
+        // Get related videos using getWatchNextContinuation or next endpoint
         const relatedVideos: any[] = [];
 
         try {
-            // Method 1: getRelated() async method
-            const relatedData = await videoInfo.getRelated();
-            console.log("[VIDEO-META] getRelated() returned:", relatedData?.videos?.length || 0, "videos");
+            // Use innertubeClient to get next/related data
+            const nextInfo = await innertubeClient.getInfo(id, "WEB");
+            const watchNextContents = (nextInfo as any).watch_next_feed;
 
-            if (relatedData?.videos) {
-                for (const item of relatedData.videos.slice(0, 10)) {
-                    relatedVideos.push({
-                        id: item.id || "",
-                        title: item.title?.text || item.title?.toString() || "",
-                        thumbnail: item.thumbnails?.[0]?.url || item.best_thumbnail?.url || "",
-                        duration: item.duration?.text || "",
-                        views: item.view_count?.text || item.short_view_count?.text || "",
-                        channel: item.author?.name || "",
-                        uploaded: item.published?.text || "",
-                    });
+            if (watchNextContents && watchNextContents.length > 0) {
+                console.log("[VIDEO-META] watch_next_feed has", watchNextContents.length, "items");
+                for (const item of watchNextContents.slice(0, 10)) {
+                    if (item.id || item.video_id) {
+                        relatedVideos.push({
+                            id: item.id || item.video_id || "",
+                            title: item.title?.text || item.title?.toString() || "",
+                            thumbnail: item.thumbnails?.[0]?.url || "",
+                            duration: item.duration?.text || "",
+                            views: item.view_count?.text || item.short_view_count?.text || "",
+                            channel: item.author?.name || item.authors?.[0]?.name || "",
+                            uploaded: item.published?.text || "",
+                        });
+                    }
                 }
             }
-        } catch (e) {
-            console.log("[VIDEO-META] getRelated() failed, trying watch_next_feed");
-            // Method 2: watch_next_feed fallback
-            const watchNext = (videoInfo as any).watch_next_feed || [];
-            for (const item of watchNext.slice(0, 10)) {
-                if (item.id) {
-                    relatedVideos.push({
-                        id: item.id,
-                        title: item.title?.text || "",
-                        thumbnail: item.thumbnails?.[0]?.url || "",
-                        duration: item.duration?.text || "",
-                        views: item.view_count?.text || "",
-                        channel: item.author?.name || "",
-                        uploaded: item.published?.text || "",
-                    });
+
+            // If still empty, try searching for similar content
+            if (relatedVideos.length === 0 && details.title) {
+                console.log("[VIDEO-META] Falling back to search for related");
+                const searchQuery = details.title.split(" ").slice(0, 3).join(" ");
+                const searchResults = await innertubeClient.search(searchQuery);
+
+                for (const item of searchResults.videos?.slice(0, 10) || []) {
+                    if (item.id && item.id !== id) {
+                        relatedVideos.push({
+                            id: item.id,
+                            title: item.title?.text || "",
+                            thumbnail: item.thumbnails?.[0]?.url || "",
+                            duration: item.duration?.text || "",
+                            views: item.view_count?.text || item.short_view_count?.text || "",
+                            channel: item.author?.name || "",
+                            uploaded: item.published?.text || "",
+                        });
+                    }
                 }
             }
+        } catch (e: any) {
+            console.log("[VIDEO-META] Error getting related:", e.message);
         }
 
         console.log("[VIDEO-META] Found", relatedVideos.length, "related videos");
