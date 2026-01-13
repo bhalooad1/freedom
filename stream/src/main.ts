@@ -136,22 +136,43 @@ app.get("/api/video/:id", async (c) => {
         // Debug: log available keys
         console.log("[VIDEO-META] VideoInfo keys:", Object.keys(videoInfo));
 
-        // Get related videos from watch_next_feed
+        // Get related videos - try multiple methods
         const relatedVideos: any[] = [];
-        const watchNext = videoInfo.watch_next_feed || [];
 
-        for (const item of watchNext) {
-            if (relatedVideos.length >= 10) break;
-            if (item.type === "CompactVideo" || item.id) {
-                relatedVideos.push({
-                    id: item.id || item.video_id || "",
-                    title: item.title?.text || item.title?.toString() || "",
-                    thumbnail: item.thumbnails?.[0]?.url || item.best_thumbnail?.url || "",
-                    duration: item.duration?.text || "",
-                    views: item.view_count?.text || item.short_view_count?.text || "",
-                    channel: item.author?.name || item.owner?.name || "",
-                    uploaded: item.published?.text || "",
-                });
+        try {
+            // Method 1: getRelated() async method
+            const relatedData = await videoInfo.getRelated();
+            console.log("[VIDEO-META] getRelated() returned:", relatedData?.videos?.length || 0, "videos");
+
+            if (relatedData?.videos) {
+                for (const item of relatedData.videos.slice(0, 10)) {
+                    relatedVideos.push({
+                        id: item.id || "",
+                        title: item.title?.text || item.title?.toString() || "",
+                        thumbnail: item.thumbnails?.[0]?.url || item.best_thumbnail?.url || "",
+                        duration: item.duration?.text || "",
+                        views: item.view_count?.text || item.short_view_count?.text || "",
+                        channel: item.author?.name || "",
+                        uploaded: item.published?.text || "",
+                    });
+                }
+            }
+        } catch (e) {
+            console.log("[VIDEO-META] getRelated() failed, trying watch_next_feed");
+            // Method 2: watch_next_feed fallback
+            const watchNext = (videoInfo as any).watch_next_feed || [];
+            for (const item of watchNext.slice(0, 10)) {
+                if (item.id) {
+                    relatedVideos.push({
+                        id: item.id,
+                        title: item.title?.text || "",
+                        thumbnail: item.thumbnails?.[0]?.url || "",
+                        duration: item.duration?.text || "",
+                        views: item.view_count?.text || "",
+                        channel: item.author?.name || "",
+                        uploaded: item.published?.text || "",
+                    });
+                }
             }
         }
 
