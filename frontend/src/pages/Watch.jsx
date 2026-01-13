@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import Header from '../components/Header';
 import VideoPlayer from '../components/VideoPlayer';
 import VideoCard from '../components/VideoCard';
+import Footer from '../components/Footer';
 import { getVideo } from '../api';
 
 function formatDate(dateString) {
@@ -70,17 +71,17 @@ export default function Watch() {
 
   if (!videoId) {
     return (
-      <div className="min-h-screen">
+      <div className="min-h-screen bg-black">
         <Header />
         <main className="max-w-7xl mx-auto px-6 py-8">
-          <p className="text-sm text-gray-400">No video specified</p>
+          <p className="text-sm text-freedom-muted">No video specified</p>
         </main>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-black">
       <Header />
 
       <main className="max-w-7xl mx-auto px-6 py-6">
@@ -90,60 +91,60 @@ export default function Watch() {
             <VideoPlayer videoId={videoId} />
 
             {loading && (
-              <div className="mt-4 animate-pulse">
-                <div className="h-6 bg-gray-100 rounded w-3/4" />
-                <div className="mt-3 h-4 bg-gray-100 rounded w-1/4" />
+              <div className="mt-4">
+                <div className="h-6 bg-freedom-surface rounded w-3/4" />
+                <div className="mt-3 h-4 bg-freedom-surface rounded w-1/4" />
               </div>
             )}
 
             {error && (
-              <p className="mt-4 text-sm text-gray-400">{error}</p>
+              <p className="mt-4 text-sm text-freedom-muted">{error}</p>
             )}
 
             {!loading && !error && video && (
               <div className="mt-4">
                 {/* Title */}
-                <h1 className="text-xl font-semibold leading-tight">
+                <h1 className="text-xl font-semibold leading-tight text-white">
                   {video.title}
                 </h1>
 
                 {/* Channel & Stats */}
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-4">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center">
-                      <span className="text-lg font-medium text-gray-600">
+                    <div className="w-10 h-10 rounded-full bg-freedom-surface border border-freedom-border flex items-center justify-center">
+                      <span className="text-lg font-medium text-white">
                         {video.channel?.charAt(0) || '?'}
                       </span>
                     </div>
                     <div>
-                      <p className="font-medium">{video.channel}</p>
+                      <p className="font-medium text-white">{video.channel}</p>
                     </div>
                   </div>
 
                   {/* Stats buttons */}
                   <div className="flex items-center gap-2">
                     {video.likes && (
-                      <div className="flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-full">
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <div className="flex items-center gap-2 px-4 py-2 bg-freedom-surface border border-freedom-border rounded-full">
+                        <svg className="w-5 h-5 text-freedom-red" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" />
                         </svg>
-                        <span className="font-medium">{video.likes}</span>
+                        <span className="font-medium text-white">{video.likes}</span>
                       </div>
                     )}
-                    <div className="flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-full">
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <div className="flex items-center gap-2 px-4 py-2 bg-freedom-surface border border-freedom-border rounded-full">
+                      <svg className="w-5 h-5 text-freedom-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                       </svg>
-                      <span className="font-medium">{video.views} views</span>
+                      <span className="font-medium text-white">{video.views} views</span>
                     </div>
                   </div>
                 </div>
 
                 {/* Description box */}
                 {video.description && (
-                  <div className="mt-4 p-4 bg-gray-50 rounded-xl">
-                    <div className="flex items-center gap-3 text-sm font-medium text-gray-700 mb-2">
+                  <div className="mt-4 p-4 bg-freedom-surface border border-freedom-border">
+                    <div className="flex items-center gap-3 text-sm font-medium text-freedom-muted mb-2">
                       <span>{video.views} views</span>
                       {video.uploaded && (
                         <>
@@ -152,13 +153,13 @@ export default function Watch() {
                         </>
                       )}
                     </div>
-                    <p className={`text-sm text-gray-700 whitespace-pre-line ${!showFullDescription ? 'line-clamp-3' : ''}`}>
+                    <p className={`text-sm text-gray-300 whitespace-pre-line ${!showFullDescription ? 'line-clamp-3' : ''}`}>
                       {video.description}
                     </p>
                     {video.description.length > 200 && (
                       <button
                         onClick={() => setShowFullDescription(!showFullDescription)}
-                        className="mt-2 text-sm font-medium text-gray-900 hover:underline"
+                        className="mt-2 text-sm font-medium text-white hover:underline"
                       >
                         {showFullDescription ? 'Show less' : 'Show more'}
                       </button>
@@ -171,17 +172,17 @@ export default function Watch() {
 
           {/* Related videos sidebar */}
           <div className="w-full lg:w-96 flex-shrink-0">
-            <h2 className="text-base font-medium mb-4">
-              Related videos
+            <h2 className="text-xs font-medium text-freedom-muted uppercase tracking-widest mb-4">
+              Related
             </h2>
             {loading && (
               <div className="space-y-3">
                 {[...Array(8)].map((_, i) => (
-                  <div key={i} className="flex gap-2 animate-pulse">
-                    <div className="w-40 aspect-video bg-gray-100 rounded flex-shrink-0" />
+                  <div key={i} className="flex gap-2">
+                    <div className="w-40 aspect-video bg-freedom-surface flex-shrink-0" />
                     <div className="flex-1">
-                      <div className="h-3 bg-gray-100 rounded w-full" />
-                      <div className="mt-2 h-3 bg-gray-100 rounded w-2/3" />
+                      <div className="h-3 bg-freedom-surface rounded w-full" />
+                      <div className="mt-2 h-3 bg-freedom-surface rounded w-2/3" />
                     </div>
                   </div>
                 ))}
@@ -195,11 +196,13 @@ export default function Watch() {
               </div>
             )}
             {!loading && (!video?.related || video.related.length === 0) && (
-              <p className="text-sm text-gray-400">No related videos</p>
+              <p className="text-sm text-freedom-muted">No related videos</p>
             )}
           </div>
         </div>
       </main>
+
+      <Footer />
     </div>
   );
 }

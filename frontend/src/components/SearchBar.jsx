@@ -22,11 +22,11 @@ export default function SearchBar({ initialQuery = '', autoFocus = false }) {
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search"
           autoFocus={autoFocus}
-          className="w-full px-4 py-3 text-base border border-gray-200 rounded-none outline-none focus:border-black transition-colors bg-white"
+          className="w-full px-4 py-3 text-base border border-freedom-border rounded-none outline-none focus:border-white transition-colors text-white placeholder-freedom-muted" style={{ backgroundColor: '#1a1a1a' }}
         />
         <button
           type="submit"
-          className="absolute right-0 top-0 h-full px-4 text-gray-400 hover:text-black transition-colors"
+          className="absolute right-0 top-0 h-full px-4 text-freedom-muted hover:text-white transition-colors"
           aria-label="Search"
         >
           <svg

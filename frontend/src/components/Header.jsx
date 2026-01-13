@@ -3,18 +3,27 @@ import SearchBar from './SearchBar';
 
 export default function Header({ showSearch = true, searchQuery = '' }) {
   return (
-    <header className="sticky top-0 z-50 bg-white border-b border-gray-100">
-      <div className="max-w-7xl mx-auto px-6 h-16 flex items-center gap-8">
-        <Link to="/" className="text-lg font-semibold tracking-tight flex-shrink-0">
-          Freedom
-        </Link>
-        {showSearch && (
-          <div className="flex-1 flex justify-center">
+    <>
+      {/* Official banner */}
+      <div className="bg-black py-3 px-6 border-b border-white/20">
+        <div className="flex items-center justify-between">
+          <Link to="/" className="text-xl text-white" style={{ fontFamily: "'Playfair Display', Georgia, serif" }}>
+            Freedom
+          </Link>
+          <div className="flex items-center gap-3">
+            <img src="/usflag.svg" alt="U.S. Flag" className="w-6 h-auto" />
+            <span className="text-sm text-white hidden sm:inline">An official website of the United States government</span>
+          </div>
+        </div>
+      </div>
+
+      {showSearch && (
+        <header className="sticky top-0 z-50 bg-black">
+          <div className="px-6 py-6 flex items-center justify-center">
             <SearchBar initialQuery={searchQuery} />
           </div>
-        )}
-        <div className="w-20 flex-shrink-0" />
-      </div>
-    </header>
+        </header>
+      )}
+    </>
   );
 }
