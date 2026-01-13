@@ -322,38 +322,73 @@ app.get('/api/trending', async (c) => {
   } catch (error: any) {
     console.error('[TRENDING] Browse failed:', error.message, '- trying search fallback');
 
-    // Fallback: Search for popular/trending content
+    // Fallback: Search multiple diverse topics and mix results
     try {
-      const searchQueries = ['music video 2024', 'trending', 'popular videos'];
-      const query = searchQueries[Math.floor(Math.random() * searchQueries.length)];
+      const searchQueries = [
+        'breaking news today',
+        'trending now 2024',
+        'viral video',
+        'tech news',
+        'sports highlights',
+        'movie trailer',
+        'podcast clips',
+        'comedy',
+        'gaming',
+        'science documentary',
+      ];
 
-      const data = await innertubeRequest('search', { query });
-      const contents = data.contents?.twoColumnSearchResultsRenderer?.primaryContents
-        ?.sectionListRenderer?.contents?.[0]?.itemSectionRenderer?.contents || [];
+      // Pick 3 random diverse queries
+      const shuffled = searchQueries.sort(() => Math.random() - 0.5);
+      const selectedQueries = shuffled.slice(0, 3);
 
-      const videos = contents
-        .filter((item: any) => item.videoRenderer)
-        .slice(0, 20)
-        .map((item: any) => {
-          const v = item.videoRenderer;
-          return {
-            id: v.videoId,
-            title: v.title?.runs?.[0]?.text || '',
-            thumbnail: v.thumbnail?.thumbnails?.slice(-1)[0]?.url || '',
-            duration: v.lengthText?.simpleText || '',
-            views: v.viewCountText?.simpleText || '',
-            channel: v.ownerText?.runs?.[0]?.text || '',
-            channelId: v.ownerText?.runs?.[0]?.navigationEndpoint?.browseEndpoint?.browseId || '',
-            uploaded: v.publishedTimeText?.simpleText || '',
-          };
-        });
+      console.log('[TRENDING] Searching for:', selectedQueries);
 
-      console.log('[TRENDING] Search fallback found', videos.length, 'videos');
+      // Fetch all 3 searches in parallel
+      const searchPromises = selectedQueries.map(query => innertubeRequest('search', { query }));
+      const searchResults = await Promise.all(searchPromises);
 
-      // Cache the fallback results too
-      if (videos.length > 0) {
-        trendingCache = { videos, expires: Date.now() + 3600000 };
-        return c.json({ videos });
+      const allVideos: any[] = [];
+
+      for (const data of searchResults) {
+        const contents = data.contents?.twoColumnSearchResultsRenderer?.primaryContents
+          ?.sectionListRenderer?.contents?.[0]?.itemSectionRenderer?.contents || [];
+
+        const videos = contents
+          .filter((item: any) => item.videoRenderer)
+          .slice(0, 8)
+          .map((item: any) => {
+            const v = item.videoRenderer;
+            return {
+              id: v.videoId,
+              title: v.title?.runs?.[0]?.text || '',
+              thumbnail: v.thumbnail?.thumbnails?.slice(-1)[0]?.url || '',
+              duration: v.lengthText?.simpleText || '',
+              views: v.viewCountText?.simpleText || '',
+              channel: v.ownerText?.runs?.[0]?.text || '',
+              channelId: v.ownerText?.runs?.[0]?.navigationEndpoint?.browseEndpoint?.browseId || '',
+              uploaded: v.publishedTimeText?.simpleText || '',
+            };
+          });
+
+        allVideos.push(...videos);
+      }
+
+      // Dedupe by video ID
+      const seen = new Set<string>();
+      const uniqueVideos = allVideos.filter(v => {
+        if (seen.has(v.id)) return false;
+        seen.add(v.id);
+        return true;
+      });
+
+      // Shuffle the mixed results
+      const shuffledVideos = uniqueVideos.sort(() => Math.random() - 0.5).slice(0, 20);
+
+      console.log('[TRENDING] Mixed search found', shuffledVideos.length, 'videos');
+
+      if (shuffledVideos.length > 0) {
+        trendingCache = { videos: shuffledVideos, expires: Date.now() + 3600000 };
+        return c.json({ videos: shuffledVideos });
       }
 
       return c.json({ error: 'No trending videos found' }, 500);
