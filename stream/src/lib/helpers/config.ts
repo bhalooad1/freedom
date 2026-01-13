@@ -3,8 +3,9 @@ import { parse } from "@std/toml";
 
 export const ConfigSchema = z.object({
     server: z.object({
-        port: z.number().default(Number(Deno.env.get("PORT")) || 8282),
-        host: z.string().default(Deno.env.get("HOST") || "127.0.0.1"),
+        // Environment variables take precedence over config file
+        port: z.number().transform((val) => Number(Deno.env.get("PORT")) || val).default(8282),
+        host: z.string().transform((val) => Deno.env.get("HOST") || val).default("0.0.0.0"),
         use_unix_socket: z.boolean().default(
             Deno.env.get("SERVER_USE_UNIX_SOCKET") === "true" || false,
         ),
