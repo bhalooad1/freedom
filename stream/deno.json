@@ -1,0 +1,48 @@
+{
+  "tasks": {
+    "dev": "deno run --allow-import=github.com:443,jsr.io:443,cdn.jsdelivr.net:443,esm.sh:443,deno.land:443 --allow-net --allow-env --allow-sys=hostname --allow-read=.,/var/tmp/youtubei.js,config --allow-write=/var/tmp/youtubei.js --watch src/main.ts",
+    "start": "deno run --allow-import=github.com:443,jsr.io:443,cdn.jsdelivr.net:443,esm.sh:443,deno.land:443 --allow-net --allow-env --allow-sys=hostname --allow-read=.,/var/tmp/youtubei.js,config --allow-write=/var/tmp/youtubei.js src/main.ts"
+  },
+  "imports": {
+    "@std/cli": "jsr:@std/cli@^1.0.17",
+    "@std/toml": "jsr:@std/toml@1.0.2",
+    "@std/async": "jsr:@std/async@1.0.11",
+    "@std/fs": "jsr:@std/fs@1.0.14",
+    "@std/path": "jsr:@std/path@1.0.8",
+    "@std/encoding/base64": "jsr:@std/encoding@1.0.7/base64",
+    "hono": "jsr:@hono/hono@4.7.4",
+    "hono/cors": "jsr:@hono/hono@4.7.4/cors",
+    "hono/logger": "jsr:@hono/hono@4.7.4/logger",
+    "hono/bearer-auth": "jsr:@hono/hono@4.7.4/bearer-auth",
+    "hono/http-exception": "jsr:@hono/hono@4.7.4/http-exception",
+    "hono/utils/stream": "jsr:@hono/hono@4.7.4/utils/stream",
+    "prom-client": "https://esm.sh/prom-client@15.1.3?pin=v135",
+    "youtubei.js": "https://cdn.jsdelivr.net/gh/LuanRT/YouTube.js@v16.0.0-deno/deno.ts",
+    "youtubei.js/Utils": "https://cdn.jsdelivr.net/gh/LuanRT/YouTube.js@v16.0.0-deno/deno/src/utils/Utils.ts",
+    "youtubei.js/NavigationEndpoint": "https://cdn.jsdelivr.net/gh/LuanRT/YouTube.js@v16.0.0-deno/deno/src/parser/classes/NavigationEndpoint.ts",
+    "youtubei.js/PlayerCaptionsTracklist": "https://cdn.jsdelivr.net/gh/LuanRT/YouTube.js@v16.0.0-deno/deno/src/parser/classes/PlayerCaptionsTracklist.ts",
+    "youtubei.js/TabbedFeed": "https://cdn.jsdelivr.net/gh/LuanRT/YouTube.js@v16.0.0-deno/deno/src/core/mixins/TabbedFeed.ts",
+    "jsdom": "npm:jsdom@26.1.0",
+    "bgutils": "https://esm.sh/bgutils-js@3.2.0",
+    "estree": "https://esm.sh/@types/estree@1.0.6",
+    "youtubePlayerReq": "./src/lib/helpers/youtubePlayerReq.ts",
+    "getFetchClient": "./src/lib/helpers/getFetchClient.ts",
+    "googlevideo": "jsr:@luanrt/googlevideo@2.0.0",
+    "meriyah": "npm:meriyah@6.1.4",
+    "crypto/": "https://deno.land/x/crypto@v0.11.0/",
+    "brotli": "https://deno.land/x/brotli@0.1.7/mod.ts",
+    "zod": "https://deno.land/x/zod@v3.24.2/mod.ts",
+    "canvas": "./src/lib/extra/emptyExport.ts",
+    "bufferutil": "./src/lib/extra/emptyExport.ts",
+    "utf-8-validate": "./src/lib/extra/emptyExport.ts"
+  },
+  "unstable": [
+    "cron",
+    "kv",
+    "http",
+    "temporal"
+  ],
+  "fmt": {
+    "indentWidth": 4
+  }
+}

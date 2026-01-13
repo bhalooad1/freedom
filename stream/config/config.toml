@@ -1,0 +1,30 @@
+# Freedom stream service configuration using invidious-companion
+
+[server]
+port = 8788
+host = "127.0.0.1"
+use_unix_socket = false
+base_path = "/"
+secret_key = "freedomstream123"
+verify_requests = false
+encrypt_query_params = false
+enable_metrics = false
+
+[cache]
+enabled = true
+directory = "/var/tmp"
+
+[networking.videoplayback]
+ump = false
+video_fetch_chunk_size_mb = 5
+
+[networking.fetch]
+timeout_ms = 30000
+
+[jobs.youtube_session]
+po_token_enabled = true
+frequency = "*/5 * * * *"
+
+[youtube_session]
+oauth_enabled = false
+cookies = ""

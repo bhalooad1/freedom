@@ -1,0 +1,9 @@
+name = "freedom-api"
+main = "src/index.ts"
+compatibility_date = "2024-05-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+ENVIRONMENT = "production"
+# URL to your Deno token service (change this when deployed)
+TOKEN_SERVICE_URL = "http://localhost:8788"
