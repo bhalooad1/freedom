@@ -19,12 +19,10 @@ export default function VideoPlayer({ videoId }) {
 
     // Warm up the server first, then load video
     const streamUrl = getStreamUrl(videoId);
-    console.log('[VideoPlayer] Warming up server...');
 
     fetch(streamUrl, { method: 'HEAD' })
-      .catch(() => {}) // Ignore errors, just warming up
+      .catch(() => {})
       .finally(() => {
-        console.log('[VideoPlayer] Loading video...');
         video.src = streamUrl;
       });
 
@@ -33,8 +31,7 @@ export default function VideoPlayer({ videoId }) {
       // Retry with increasing delays for cold starts
       if (retryCountRef.current < maxRetries) {
         retryCountRef.current++;
-        const delay = retryCountRef.current * 1500; // 1.5s, 3s, 4.5s, 6s
-        console.log(`[VideoPlayer] Retry ${retryCountRef.current}/${maxRetries} in ${delay}ms...`);
+        const delay = retryCountRef.current * 1500;
         setTimeout(() => {
           video.src = getStreamUrl(videoId) + '?retry=' + Date.now();
         }, delay);

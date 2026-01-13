@@ -56,7 +56,6 @@ export default function Watch() {
       } catch (err) {
         // Retry on failure (server might be warming up)
         if (retries > 0) {
-          console.log('[Watch] Retrying video info...');
           setTimeout(() => fetchVideo(retries - 1), 1000);
           return;
         }
