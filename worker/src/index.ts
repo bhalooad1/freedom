@@ -118,27 +118,100 @@ app.get('/api/video/:id', async (c) => {
 
     const microformat = data.microformat?.playerMicroformatRenderer || {};
 
+    // Fetch related videos
     console.log('[VIDEO] Calling next endpoint for related...');
-    const relatedData = await innertubeRequest('next', { videoId: id });
-    const relatedContents = relatedData.contents?.twoColumnWatchNextResults
-      ?.secondaryResults?.secondaryResults?.results || [];
+    let related: any[] = [];
 
-    const related = relatedContents
-      .filter((item: any) => item.compactVideoRenderer)
-      .slice(0, 10)
-      .map((item: any) => {
-        const v = item.compactVideoRenderer;
-        return {
-          id: v.videoId,
-          title: v.title?.simpleText || '',
-          thumbnail: v.thumbnail?.thumbnails?.slice(-1)[0]?.url || '',
-          duration: v.lengthText?.simpleText || '',
-          views: v.viewCountText?.simpleText || '',
-          channel: v.shortBylineText?.runs?.[0]?.text || '',
-        };
+    try {
+      const relatedData = await innertubeRequest('next', { videoId: id });
+
+      // Helper to extract video from compactVideoRenderer
+      const extractRelated = (v: any) => ({
+        id: v.videoId,
+        title: v.title?.simpleText || v.title?.runs?.[0]?.text || '',
+        thumbnail: v.thumbnail?.thumbnails?.slice(-1)[0]?.url || '',
+        duration: v.lengthText?.simpleText || '',
+        views: v.viewCountText?.simpleText || v.shortViewCountText?.simpleText || '',
+        channel: v.shortBylineText?.runs?.[0]?.text || v.longBylineText?.runs?.[0]?.text || '',
+        uploaded: v.publishedTimeText?.simpleText || '',
       });
 
-    console.log('[VIDEO] Found', related.length, 'related videos');
+      // Strategy 1: twoColumnWatchNextResults (desktop)
+      const secondaryResults = relatedData.contents?.twoColumnWatchNextResults
+        ?.secondaryResults?.secondaryResults?.results || [];
+
+      for (const item of secondaryResults) {
+        if (item.compactVideoRenderer) {
+          related.push(extractRelated(item.compactVideoRenderer));
+        }
+        // Also check for itemSectionRenderer containing videos
+        if (item.itemSectionRenderer?.contents) {
+          for (const content of item.itemSectionRenderer.contents) {
+            if (content.compactVideoRenderer) {
+              related.push(extractRelated(content.compactVideoRenderer));
+            }
+          }
+        }
+      }
+
+      // Strategy 2: singleColumnWatchNextResults (mobile)
+      const singleResults = relatedData.contents?.singleColumnWatchNextResults
+        ?.results?.results?.contents || [];
+
+      for (const item of singleResults) {
+        if (item.compactVideoRenderer) {
+          related.push(extractRelated(item.compactVideoRenderer));
+        }
+        if (item.itemSectionRenderer?.contents) {
+          for (const content of item.itemSectionRenderer.contents) {
+            if (content.compactVideoRenderer) {
+              related.push(extractRelated(content.compactVideoRenderer));
+            }
+          }
+        }
+      }
+
+      console.log('[VIDEO] Found', related.length, 'related videos from next endpoint');
+
+      // Fallback: If no related found, try search with video title
+      if (related.length === 0 && details.title) {
+        console.log('[VIDEO] No related from next, trying search fallback');
+        const searchQuery = details.title.split(' ').slice(0, 3).join(' ');
+        const searchData = await innertubeRequest('search', { query: searchQuery });
+
+        const searchContents = searchData.contents?.twoColumnSearchResultsRenderer?.primaryContents
+          ?.sectionListRenderer?.contents?.[0]?.itemSectionRenderer?.contents || [];
+
+        related = searchContents
+          .filter((item: any) => item.videoRenderer && item.videoRenderer.videoId !== id)
+          .slice(0, 10)
+          .map((item: any) => {
+            const v = item.videoRenderer;
+            return {
+              id: v.videoId,
+              title: v.title?.runs?.[0]?.text || '',
+              thumbnail: v.thumbnail?.thumbnails?.slice(-1)[0]?.url || '',
+              duration: v.lengthText?.simpleText || '',
+              views: v.viewCountText?.simpleText || '',
+              channel: v.ownerText?.runs?.[0]?.text || '',
+              uploaded: v.publishedTimeText?.simpleText || '',
+            };
+          });
+
+        console.log('[VIDEO] Search fallback found', related.length, 'related videos');
+      }
+    } catch (relatedError: any) {
+      console.error('[VIDEO] Failed to fetch related:', relatedError.message);
+      // Continue without related videos
+    }
+
+    // Dedupe and limit related videos
+    const seenIds = new Set<string>();
+    related = related.filter(v => {
+      if (!v.id || seenIds.has(v.id) || v.id === id) return false;
+      seenIds.add(v.id);
+      return true;
+    }).slice(0, 10);
 
     return c.json({
       id,
@@ -159,23 +232,111 @@ app.get('/api/video/:id', async (c) => {
   }
 });
 
-app.get('/api/trending', async (c) => {
-  try {
-    const data = await innertubeRequest('browse', { browseId: 'FEtrending' });
+// Cache for trending results (1 hour)
+let trendingCache: { videos: any[]; expires: number } | null = null;
 
-    const tabs = data.contents?.twoColumnBrowseResultsRenderer?.tabs || [];
-    const contents = tabs[0]?.tabRenderer?.content?.sectionListRenderer?.contents || [];
+app.get('/api/trending', async (c) => {
+  // Return cached results if still valid
+  if (trendingCache && trendingCache.expires > Date.now()) {
+    console.log('[TRENDING] Returning cached results');
+    return c.json({ videos: trendingCache.videos });
+  }
+
+  try {
+    console.log('[TRENDING] Fetching fresh trending...');
+    const data = await innertubeRequest('browse', { browseId: 'FEtrending' });
 
     const videos: any[] = [];
 
-    for (const section of contents) {
-      const items = section.itemSectionRenderer?.contents?.[0]?.shelfRenderer
-        ?.content?.expandedShelfContentsRenderer?.items || [];
+    // Helper to extract video from videoRenderer
+    const extractVideo = (v: any) => ({
+      id: v.videoId,
+      title: v.title?.runs?.[0]?.text || v.title?.simpleText || '',
+      thumbnail: v.thumbnail?.thumbnails?.slice(-1)[0]?.url || '',
+      duration: v.lengthText?.simpleText || '',
+      views: v.viewCountText?.simpleText || v.shortViewCountText?.simpleText || '',
+      channel: v.ownerText?.runs?.[0]?.text || v.shortBylineText?.runs?.[0]?.text || '',
+      channelId: v.ownerText?.runs?.[0]?.navigationEndpoint?.browseEndpoint?.browseId || '',
+      uploaded: v.publishedTimeText?.simpleText || '',
+    });
 
-      for (const item of items) {
-        const v = item.videoRenderer;
-        if (v) {
-          videos.push({
+    // Strategy 1: twoColumnBrowseResultsRenderer (desktop)
+    const tabs = data.contents?.twoColumnBrowseResultsRenderer?.tabs || [];
+    for (const tab of tabs) {
+      const contents = tab.tabRenderer?.content?.sectionListRenderer?.contents || [];
+      for (const section of contents) {
+        // Try expandedShelfContentsRenderer
+        const shelfItems = section.itemSectionRenderer?.contents?.[0]?.shelfRenderer
+          ?.content?.expandedShelfContentsRenderer?.items || [];
+        for (const item of shelfItems) {
+          if (item.videoRenderer) videos.push(extractVideo(item.videoRenderer));
+        }
+
+        // Try richItemRenderer (grid layout)
+        const richItems = section.itemSectionRenderer?.contents || [];
+        for (const item of richItems) {
+          if (item.videoRenderer) videos.push(extractVideo(item.videoRenderer));
+          if (item.richItemRenderer?.content?.videoRenderer) {
+            videos.push(extractVideo(item.richItemRenderer.content.videoRenderer));
+          }
+        }
+      }
+    }
+
+    // Strategy 2: singleColumnBrowseResultsRenderer (mobile)
+    const singleColumn = data.contents?.singleColumnBrowseResultsRenderer?.tabs || [];
+    for (const tab of singleColumn) {
+      const contents = tab.tabRenderer?.content?.sectionListRenderer?.contents || [];
+      for (const section of contents) {
+        const items = section.itemSectionRenderer?.contents || [];
+        for (const item of items) {
+          if (item.videoRenderer) videos.push(extractVideo(item.videoRenderer));
+          if (item.compactVideoRenderer) {
+            const v = item.compactVideoRenderer;
+            videos.push({
+              id: v.videoId,
+              title: v.title?.simpleText || '',
+              thumbnail: v.thumbnail?.thumbnails?.slice(-1)[0]?.url || '',
+              duration: v.lengthText?.simpleText || '',
+              views: v.viewCountText?.simpleText || '',
+              channel: v.shortBylineText?.runs?.[0]?.text || '',
+              uploaded: '',
+            });
+          }
+        }
+      }
+    }
+
+    console.log('[TRENDING] Found', videos.length, 'videos from browse');
+
+    // If browse worked, cache and return
+    if (videos.length > 0) {
+      trendingCache = { videos: videos.slice(0, 20), expires: Date.now() + 3600000 };
+      return c.json({ videos: videos.slice(0, 20) });
+    }
+
+    // Fallback: Use search for popular content
+    console.log('[TRENDING] Browse returned no videos, falling back to search');
+    throw new Error('No videos found in browse response');
+
+  } catch (error: any) {
+    console.error('[TRENDING] Browse failed:', error.message, '- trying search fallback');
+
+    // Fallback: Search for popular/trending content
+    try {
+      const searchQueries = ['music video 2024', 'trending', 'popular videos'];
+      const query = searchQueries[Math.floor(Math.random() * searchQueries.length)];
+
+      const data = await innertubeRequest('search', { query });
+      const contents = data.contents?.twoColumnSearchResultsRenderer?.primaryContents
+        ?.sectionListRenderer?.contents?.[0]?.itemSectionRenderer?.contents || [];
+
+      const videos = contents
+        .filter((item: any) => item.videoRenderer)
+        .slice(0, 20)
+        .map((item: any) => {
+          const v = item.videoRenderer;
+          return {
             id: v.videoId,
             title: v.title?.runs?.[0]?.text || '',
             thumbnail: v.thumbnail?.thumbnails?.slice(-1)[0]?.url || '',
@@ -184,15 +345,22 @@ app.get('/api/trending', async (c) => {
             channel: v.ownerText?.runs?.[0]?.text || '',
             channelId: v.ownerText?.runs?.[0]?.navigationEndpoint?.browseEndpoint?.browseId || '',
             uploaded: v.publishedTimeText?.simpleText || '',
-          });
-        }
-      }
-    }
+          };
+        });
 
-    return c.json({ videos: videos.slice(0, 20) });
-  } catch (error: any) {
-    console.error('Trending error:', error.message);
-    return c.json({ error: 'Failed to get trending' }, 500);
+      console.log('[TRENDING] Search fallback found', videos.length, 'videos');
+
+      // Cache the fallback results too
+      if (videos.length > 0) {
+        trendingCache = { videos, expires: Date.now() + 3600000 };
+        return c.json({ videos });
+      }
+
+      return c.json({ error: 'No trending videos found' }, 500);
+    } catch (searchError: any) {
+      console.error('[TRENDING] Search fallback also failed:', searchError.message);
+      return c.json({ error: 'Failed to get trending' }, 500);
+    }
   }
 });
 

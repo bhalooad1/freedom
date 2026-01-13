@@ -46,6 +46,9 @@ app.use("/*", cors({
 let tokenMinter: TokenMinter | undefined;
 let innertubeClient: Innertube;
 
+// Cache video URLs for 5 minutes to ensure consistent seeking
+const videoCache = new Map<string, { url: string; host: string; mimeType: string; pot: string; expires: number }>();
+
 // Setup JS interpreter for signature decryption
 Platform.shim.eval = jsInterpreter;
 
@@ -106,7 +109,7 @@ app.use("*", async (c, next) => {
 app.get("/health", (c) => c.json({ status: "ok" }));
 app.get("/healthz", (c) => c.json({ status: "ok" }));
 
-// Stream endpoint - this is what the frontend calls
+// Stream endpoint - simple proxy to YouTube
 app.get("/stream/:id", async (c) => {
     const id = c.req.param("id");
     console.log("[STREAM] Request for video:", id);
@@ -117,184 +120,148 @@ app.get("/stream/:id", async (c) => {
 
     if (!tokenMinter) {
         console.log("[STREAM] Token minter not ready, waiting...");
-        // Wait up to 30 seconds for token minter to be ready
         for (let i = 0; i < 30; i++) {
             await new Promise((r) => setTimeout(r, 1000));
             if (tokenMinter) break;
         }
         if (!tokenMinter) {
-            return c.json({ error: "Service initializing, please try again" }, 503);
+            return c.json({ error: "Service initializing" }, 503);
         }
     }
 
     try {
-        // Get video player data using companion's parsing
-        console.log("[STREAM] Getting video info...");
-        const playerData = await youtubePlayerParsing({
-            innertubeClient,
-            videoId: id,
-            config,
-            tokenMinter,
-            metrics: undefined,
-        }) as any;
+        // Check cache first
+        let cached = videoCache.get(id);
+        let videoUrl: URL;
+        let host: string;
+        let mimeType: string;
+        let pot: string;
 
-        if (playerData.playabilityStatus?.status !== "OK") {
-            console.log("[STREAM] Video not playable:", playerData.playabilityStatus?.reason);
-            return c.json({
-                error: "Video not playable",
-                reason: playerData.playabilityStatus?.reason || "Unknown",
-            }, 403);
+        if (cached && cached.expires > Date.now()) {
+            // Use cached URL
+            console.log("[STREAM] Using cached URL");
+            videoUrl = new URL(cached.url);
+            host = cached.host;
+            mimeType = cached.mimeType;
+            pot = cached.pot;
+        } else {
+            // Get fresh video info
+            console.log("[STREAM] Getting video info...");
+            const playerData = await youtubePlayerParsing({
+                innertubeClient,
+                videoId: id,
+                config,
+                tokenMinter,
+                metrics: undefined,
+            }) as any;
+
+            if (playerData.playabilityStatus?.status !== "OK") {
+                return c.json({ error: "Video not playable" }, 403);
+            }
+
+            if (!playerData.streamingData) {
+                return c.json({ error: "No streaming data" }, 404);
+            }
+
+            // Get combined format (video+audio)
+            const formats = playerData.streamingData.formats || [];
+            let format = formats.find((f: any) => f.url && f.mimeType?.includes("mp4"));
+            if (!format) format = formats.find((f: any) => f.url);
+
+            if (!format?.url) {
+                return c.json({ error: "No playable format" }, 404);
+            }
+
+            console.log("[STREAM] Using format:", format.qualityLabel || format.quality);
+
+            videoUrl = new URL(format.url);
+            host = videoUrl.hostname;
+            mimeType = format.mimeType || "video/mp4";
+            pot = await tokenMinter(id);
+
+            // Cache for 5 minutes
+            videoCache.set(id, {
+                url: format.url,
+                host,
+                mimeType,
+                pot,
+                expires: Date.now() + 5 * 60 * 1000,
+            });
         }
 
-        if (!playerData.streamingData) {
-            return c.json({ error: "No streaming data" }, 404);
-        }
-
-        // Get the best format with both video and audio
-        const formats = playerData.streamingData.formats || [];
-        const adaptiveFormats = playerData.streamingData.adaptiveFormats || [];
-
-        // Prefer formats with both video and audio
-        let format = formats.find((f: any) => f.url) || formats[0];
-
-        // If no combined format, try adaptive formats
-        if (!format?.url && adaptiveFormats.length > 0) {
-            format = adaptiveFormats.find((f: any) => f.url && f.mimeType?.includes("video")) || adaptiveFormats[0];
-        }
-
-        if (!format?.url) {
-            return c.json({ error: "No playable format found" }, 404);
-        }
-
-        console.log("[STREAM] Using format:", format.qualityLabel || format.quality, format.mimeType);
-
-        // Extract URL parameters for videoplayback proxy
-        const videoUrl = new URL(format.url);
-        const host = videoUrl.hostname;
-
-        // Build query params for our videoplayback proxy
+        // Build request
         const queryParams = new URLSearchParams(videoUrl.search);
-        queryParams.set("host", host);
-        queryParams.set("c", "WEB");
+        if (pot) queryParams.set("pot", pot);
 
-        // Remove host from original params since we pass it separately
-        queryParams.delete("host");
-
-        // Get content PO token for this video
-        const contentPoToken = await tokenMinter(id);
-        if (contentPoToken) {
-            queryParams.set("pot", contentPoToken);
-        }
-
-        // Handle range requests
-        const rangeHeader = c.req.header("Range");
-
-        // Proxy through our videoplayback endpoint
-        const proxyUrl = `/videoplayback?${queryParams.toString()}`;
-        console.log("[STREAM] Proxying through videoplayback");
-
-        // Fetch from YouTube with chunking
-        const fetchClient = getFetchClient(config);
-
-        const headersToSend: HeadersInit = {
-            "accept": "*/*",
-            "accept-encoding": "gzip, deflate, br",
-            "accept-language": "en-us,en;q=0.5",
+        const headers: Record<string, string> = {
             "origin": "https://www.youtube.com",
             "referer": "https://www.youtube.com",
-            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         };
 
+        // Pass through range header (only as HTTP header, not query param)
+        const rangeHeader = c.req.header("Range");
         if (rangeHeader) {
-            queryParams.set("range", rangeHeader.replace("bytes=", ""));
+            console.log("[STREAM] Range requested:", rangeHeader);
+            headers["Range"] = rangeHeader;
         }
 
-        // Follow redirects
-        let location = `https://${host}/videoplayback?${queryParams.toString()}`;
-        let headResponse: Response | undefined;
+        // Fetch from YouTube - let redirects happen naturally
+        const fetchClient = getFetchClient(config);
+        const url = `https://${host}/videoplayback?${queryParams.toString()}`;
 
-        for (let i = 0; i < 5; i++) {
-            const googlevideoResponse = await fetchClient(location, {
-                method: "HEAD",
-                headers: headersToSend,
-                redirect: "manual",
+        let response = await fetchClient(url, { method: "GET", headers, redirect: "follow" });
+
+        // If 403, clear cache and try POST method
+        if (response.status === 403) {
+            console.log("[STREAM] GET returned 403, clearing cache and trying POST...");
+            videoCache.delete(id);
+            response = await fetchClient(url, {
+                method: "POST",
+                headers,
+                body: new Uint8Array([0x78, 0x00]),
+                redirect: "follow"
             });
-
-            if (googlevideoResponse.status === 403) {
-                console.log("[STREAM] Got 403, trying POST method...");
-                break;
-            }
-
-            if (googlevideoResponse.headers.has("Location")) {
-                location = googlevideoResponse.headers.get("Location") as string;
-                continue;
-            } else {
-                headResponse = googlevideoResponse;
-                break;
-            }
         }
 
-        // Fetch the actual video content using POST (more reliable)
-        console.log("[STREAM] Fetching video content...");
-        const response = await fetchClient(location, {
-            method: "POST",
-            body: new Uint8Array([0x78, 0]), // protobuf: { 15: 0 }
-            headers: headersToSend,
-        });
+        // If 416 (range not satisfiable), clear cache and return error
+        if (response.status === 416) {
+            console.log("[STREAM] Range not satisfiable, clearing cache");
+            videoCache.delete(id);
+            return new Response("Range not satisfiable", {
+                status: 416,
+                headers: { "Access-Control-Allow-Origin": "*" }
+            });
+        }
 
         if (!response.ok && response.status !== 206) {
-            // Try GET as fallback
-            console.log("[STREAM] POST failed, trying GET...");
-            const getResponse = await fetchClient(location, {
-                method: "GET",
-                headers: headersToSend,
-            });
-
-            if (!getResponse.ok && getResponse.status !== 206) {
-                console.error("[STREAM] Failed to fetch video:", getResponse.status);
-                return c.json({ error: "Failed to fetch video from YouTube" }, 502);
-            }
-
-            const responseHeaders: Record<string, string> = {
-                "Content-Type": format.mimeType || "video/mp4",
-                "Accept-Ranges": "bytes",
-                "Access-Control-Allow-Origin": "*",
-            };
-
-            const contentLength = getResponse.headers.get("Content-Length");
-            if (contentLength) responseHeaders["Content-Length"] = contentLength;
-
-            const contentRange = getResponse.headers.get("Content-Range");
-            if (contentRange) responseHeaders["Content-Range"] = contentRange;
-
-            return new Response(getResponse.body, {
-                status: getResponse.status,
-                headers: responseHeaders,
-            });
+            console.error("[STREAM] Failed:", response.status);
+            videoCache.delete(id); // Clear cache on any error
+            return c.json({ error: "Failed to fetch video" }, 502);
         }
 
-        console.log("[STREAM] Success! Streaming video...");
+        console.log("[STREAM] Success:", response.status);
+        console.log("[STREAM] Content-Range:", response.headers.get("Content-Range"));
 
-        // Build response headers
-        const responseHeaders: Record<string, string> = {
-            "Content-Type": format.mimeType || "video/mp4",
+        // Return response
+        const respHeaders: Record<string, string> = {
+            "Content-Type": mimeType,
             "Accept-Ranges": "bytes",
             "Access-Control-Allow-Origin": "*",
         };
 
-        const contentLength = response.headers.get("Content-Length");
-        if (contentLength) responseHeaders["Content-Length"] = contentLength;
-
-        const contentRange = response.headers.get("Content-Range");
-        if (contentRange) responseHeaders["Content-Range"] = contentRange;
+        const cl = response.headers.get("Content-Length");
+        const cr = response.headers.get("Content-Range");
+        if (cl) respHeaders["Content-Length"] = cl;
+        if (cr) respHeaders["Content-Range"] = cr;
 
         return new Response(response.body, {
             status: response.status,
-            headers: responseHeaders,
+            headers: respHeaders,
         });
     } catch (error: any) {
         console.error("[STREAM] Error:", error.message);
-        return c.json({ error: "Stream failed", details: error.message }, 500);
+        return c.json({ error: "Stream failed" }, 500);
     }
 });
 
@@ -349,6 +316,162 @@ app.get("/video-info/:id", async (c) => {
     } catch (error: any) {
         console.error("[INFO] Error:", error.message);
         return c.json({ error: "Failed to get video info", details: error.message }, 500);
+    }
+});
+
+// Search endpoint
+app.get("/api/search", async (c) => {
+    const query = c.req.query("q");
+    console.log("[SEARCH] Query:", query);
+
+    if (!query) {
+        return c.json({ error: "Missing query" }, 400);
+    }
+
+    // Wait for client to be ready
+    if (!tokenMinter) {
+        for (let i = 0; i < 30; i++) {
+            await new Promise((r) => setTimeout(r, 1000));
+            if (tokenMinter) break;
+        }
+        if (!tokenMinter) {
+            return c.json({ error: "Service initializing" }, 503);
+        }
+    }
+
+    try {
+        const results = await innertubeClient.search(query, { type: "video" });
+        const searchResults = results.videos?.map((v: any) => ({
+            id: v.id,
+            title: v.title?.text || v.title,
+            channel: v.author?.name || "Unknown",
+            authorId: v.author?.id,
+            duration: v.duration?.text || "",
+            views: v.view_count?.text || v.short_view_count?.text || "",
+            uploaded: v.published?.text || "",
+            thumbnail: v.thumbnails?.[0]?.url || "",
+        })) || [];
+
+        return c.json({ results: searchResults });
+    } catch (error: any) {
+        console.error("[SEARCH] Error:", error.message);
+        return c.json({ error: "Search failed" }, 500);
+    }
+});
+
+// Trending cache (isolated from other caches)
+let trendingCache: { videos: any[]; expires: number } | null = null;
+
+// Trending endpoint - uses search with 1 hour cache
+app.get("/api/trending", async (c) => {
+    // Return cached if valid
+    if (trendingCache && trendingCache.expires > Date.now()) {
+        console.log("[TRENDING] Returning cached results");
+        return c.json({ videos: trendingCache.videos });
+    }
+
+    console.log("[TRENDING] Fetching fresh trending...");
+
+    // Wait for client to be ready
+    if (!tokenMinter) {
+        for (let i = 0; i < 30; i++) {
+            await new Promise((r) => setTimeout(r, 1000));
+            if (tokenMinter) break;
+        }
+        if (!tokenMinter) {
+            return c.json({ error: "Service initializing" }, 503);
+        }
+    }
+
+    try {
+        // Use search for popular content
+        const results = await innertubeClient.search("music", { type: "video" });
+
+        const videos = results.videos?.slice(0, 20).map((v: any) => ({
+            id: v.id,
+            title: v.title?.text || v.title,
+            channel: v.author?.name || "Unknown",
+            duration: v.duration?.text || "",
+            views: v.view_count?.text || v.short_view_count?.text || "",
+            uploaded: v.published?.text || "",
+            thumbnail: v.thumbnails?.[0]?.url || "",
+        })) || [];
+
+        // Cache for 1 hour
+        trendingCache = {
+            videos,
+            expires: Date.now() + 60 * 60 * 1000,
+        };
+
+        console.log("[TRENDING] Cached", videos.length, "videos");
+        return c.json({ videos });
+    } catch (error: any) {
+        console.error("[TRENDING] Error:", error.message);
+        // Return stale cache if available
+        if (trendingCache) {
+            console.log("[TRENDING] Returning stale cache");
+            return c.json({ videos: trendingCache.videos });
+        }
+        return c.json({ error: "Failed to fetch trending" }, 500);
+    }
+});
+
+// Video info endpoint with related videos
+app.get("/api/video/:id", async (c) => {
+    const id = c.req.param("id");
+    console.log("[VIDEO] Getting info for:", id);
+
+    if (!id || !/^[a-zA-Z0-9_-]{11}$/.test(id)) {
+        return c.json({ error: "Invalid video ID" }, 400);
+    }
+
+    // Wait for client to be ready
+    if (!tokenMinter) {
+        for (let i = 0; i < 30; i++) {
+            await new Promise((r) => setTimeout(r, 1000));
+            if (tokenMinter) break;
+        }
+        if (!tokenMinter) {
+            return c.json({ error: "Service initializing" }, 503);
+        }
+    }
+
+    try {
+        const info = await innertubeClient.getInfo(id);
+
+        // Extract related videos (safely)
+        const related: any[] = [];
+        try {
+            const relatedVideos = info.watch_next_feed || [];
+            for (const item of relatedVideos.slice(0, 10)) {
+                if (item?.id) {
+                    related.push({
+                        id: item.id,
+                        title: item.title?.text || item.title || "",
+                        channel: item.author?.name || "Unknown",
+                        duration: item.duration?.text || "",
+                        views: item.view_count?.text || item.short_view_count?.text || "",
+                        thumbnail: item.thumbnails?.[0]?.url || "",
+                    });
+                }
+            }
+        } catch (e) {
+            console.log("[VIDEO] Could not get related videos");
+        }
+
+        return c.json({
+            id,
+            title: info.basic_info?.title || "",
+            channel: info.basic_info?.author || "",
+            views: info.basic_info?.view_count?.toLocaleString() || "",
+            likes: info.basic_info?.like_count?.toLocaleString() || "",
+            uploaded: info.primary_info?.published?.text || info.primary_info?.relative_date?.text || "",
+            description: info.basic_info?.short_description || "",
+            related,
+        });
+    } catch (error: any) {
+        console.error("[VIDEO] Error:", error.message);
+        return c.json({ error: "Failed to get video info" }, 500);
     }
 });
 

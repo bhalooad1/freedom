@@ -5,32 +5,47 @@ export default function VideoPlayer({ videoId }) {
   const videoRef = useRef(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
+  const retryCountRef = useRef(0);
 
   useEffect(() => {
+    if (!videoRef.current || !videoId) return;
+
     setError(null);
     setLoading(true);
+    retryCountRef.current = 0;
+
+    const video = videoRef.current;
+    video.src = getStreamUrl(videoId);
+
+    const onCanPlay = () => setLoading(false);
+    const onError = () => {
+      // Retry once on initial load failure
+      if (retryCountRef.current < 1) {
+        retryCountRef.current++;
+        console.log('[VideoPlayer] Retrying...');
+        setTimeout(() => {
+          video.src = getStreamUrl(videoId) + '?retry=' + Date.now();
+        }, 1000);
+      } else {
+        setLoading(false);
+        setError('Failed to load video');
+      }
+    };
+    const onWaiting = () => setLoading(true);
+    const onPlaying = () => setLoading(false);
+
+    video.addEventListener('canplay', onCanPlay);
+    video.addEventListener('error', onError);
+    video.addEventListener('waiting', onWaiting);
+    video.addEventListener('playing', onPlaying);
+
+    return () => {
+      video.removeEventListener('canplay', onCanPlay);
+      video.removeEventListener('error', onError);
+      video.removeEventListener('waiting', onWaiting);
+      video.removeEventListener('playing', onPlaying);
+    };
   }, [videoId]);
-
-  const handleCanPlay = () => {
-    setLoading(false);
-  };
-
-  const handleError = (e) => {
-    console.error('Video error:', e.target?.error);
-    setLoading(false);
-    setError('Failed to load video');
-  };
-
-  const handleWaiting = () => {
-    setLoading(true);
-  };
-
-  const handlePlaying = () => {
-    setLoading(false);
-  };
-
-  // Use the proxy URL directly
-  const streamSrc = getStreamUrl(videoId);
 
   return (
     <div className="relative w-full bg-black aspect-video">
@@ -46,15 +61,10 @@ export default function VideoPlayer({ videoId }) {
       )}
       <video
         ref={videoRef}
-        src={streamSrc}
         controls
         autoPlay
         playsInline
         className="w-full h-full"
-        onCanPlay={handleCanPlay}
-        onError={handleError}
-        onWaiting={handleWaiting}
-        onPlaying={handlePlaying}
       />
     </div>
   );

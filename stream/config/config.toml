@@ -2,9 +2,12 @@
 # Change secret_key to any 16 alphanumeric characters
 
 [server]
+# PORT env var overrides this in production
 port = 8788
-host = "127.0.0.1"
-secret_key = "CHANGE_ME_16CHAR"
+# Use 0.0.0.0 to accept external connections
+host = "0.0.0.0"
+secret_key = "freedomstream123"
+base_path = "/"
 
 [cache]
 enabled = true
