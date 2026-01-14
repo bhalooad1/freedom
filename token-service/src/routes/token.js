@@ -1,11 +1,21 @@
 import { Hono } from 'hono';
 import { getVideoPoToken, getVisitorData, isInitialized, refreshPoToken } from '../potoken/generator.js';
-import { getPlayerData, decipherUrl } from '../innertube/player.js';
 
 const app = new Hono();
 
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 const CLIENT_VERSION = '2.20241210.00.00';
+
+// Store the Innertube client
+let innertubeClient = null;
+
+/**
+ * Set the Innertube client from main.js
+ */
+export function setInnertubeClient(client) {
+  innertubeClient = client;
+  console.log('[TOKEN] Innertube client set');
+}
 
 /**
  * Make InnerTube player API request
@@ -106,19 +116,29 @@ app.post('/video-url', async (c) => {
 
   console.log(`[TOKEN] Processing request for ${videoId}`);
 
+  if (!innertubeClient) {
+    return c.json(
+      {
+        success: false,
+        error: 'Service initializing - Innertube client not ready',
+      },
+      503
+    );
+  }
+
   try {
     // Get PO token and visitor data
     const poToken = await getVideoPoToken(videoId);
     const visitorData = await getVisitorData();
     console.log(`[TOKEN] Got PO token for ${videoId}`);
 
-    // Get player data (for signature deciphering)
-    const playerData = await getPlayerData();
-    console.log(`[TOKEN] Got player data (timestamp: ${playerData.signatureTimestamp})`);
+    // Get signature timestamp from Innertube client's player
+    const signatureTimestamp = innertubeClient.session.player?.signature_timestamp || 0;
+    console.log(`[TOKEN] Using signature timestamp: ${signatureTimestamp}`);
 
     // Fetch video info from InnerTube API
     console.log(`[TOKEN] Fetching video info for ${videoId}`);
-    const playerResponse = await fetchPlayerResponse(videoId, visitorData, poToken, playerData.signatureTimestamp);
+    const playerResponse = await fetchPlayerResponse(videoId, visitorData, poToken, signatureTimestamp);
 
     // Check playability
     if (playerResponse.playabilityStatus?.status !== 'OK') {
@@ -133,9 +153,9 @@ app.post('/video-url', async (c) => {
     }
 
     // Select best format
-    const format = selectBestFormat(playerResponse.streamingData);
+    const rawFormat = selectBestFormat(playerResponse.streamingData);
 
-    if (!format) {
+    if (!rawFormat) {
       return c.json(
         {
           success: false,
@@ -145,33 +165,55 @@ app.post('/video-url', async (c) => {
       );
     }
 
-    console.log(`[TOKEN] Selected format: ${format.qualityLabel || format.quality} (${format.mimeType})`);
+    console.log(`[TOKEN] Selected format: ${rawFormat.qualityLabel || rawFormat.quality} (${rawFormat.mimeType})`);
 
-    // Get the URL (may need deciphering)
+    // Use the player's decipher method directly
+    const player = innertubeClient.session.player;
     let url;
 
-    if (format.url) {
-      // URL is already available, just need to transform n parameter
-      url = await decipherUrl(playerData, format.url);
-    } else if (format.signatureCipher) {
+    if (rawFormat.url) {
+      // URL exists but may need n-transform
+      url = await player.decipher(rawFormat.url);
+    } else if (rawFormat.signatureCipher) {
       // Need to decipher the signature
-      url = await decipherUrl(playerData, '', format.signatureCipher);
+      url = await player.decipher(undefined, rawFormat.signatureCipher);
+    } else if (rawFormat.cipher) {
+      // Old cipher format
+      url = await player.decipher(undefined, undefined, rawFormat.cipher);
     } else {
       return c.json(
         {
           success: false,
-          error: 'Could not get video URL',
+          error: 'No URL or cipher in format',
         },
         500
       );
     }
 
+    if (!url) {
+      return c.json(
+        {
+          success: false,
+          error: 'Could not decipher video URL',
+        },
+        500
+      );
+    }
+
+    console.log(`[TOKEN] Deciphered URL successfully`);
+
     // Add PO token and alr=no to URL
     // alr=no prevents YouTube from auto-redirecting to different CDN servers
-    // which would have a new untransformed n parameter
     const urlObj = new URL(url);
     urlObj.searchParams.set('pot', poToken);
-    urlObj.searchParams.set('alr', 'no');
+
+    // Replace alr=yes with alr=no if present, or add it
+    if (urlObj.searchParams.get('alr') === 'yes') {
+      urlObj.searchParams.set('alr', 'no');
+    } else if (!urlObj.searchParams.has('alr')) {
+      urlObj.searchParams.set('alr', 'no');
+    }
+
     url = urlObj.toString();
 
     // Extract host
@@ -190,9 +232,9 @@ app.post('/video-url', async (c) => {
         url,
         pot: poToken,
         host,
-        mimeType: format.mimeType || 'video/mp4',
-        qualityLabel: format.qualityLabel || format.quality || '720p',
-        contentLength: parseInt(format.contentLength || '0', 10),
+        mimeType: rawFormat.mimeType || 'video/mp4',
+        qualityLabel: rawFormat.qualityLabel || rawFormat.quality || '720p',
+        contentLength: parseInt(rawFormat.contentLength || '0', 10),
         expiresAt,
       },
     });
@@ -237,6 +279,9 @@ app.post('/refresh', async (c) => {
 app.get('/status', (c) => {
   return c.json({
     initialized: isInitialized(),
+    innertubeReady: !!innertubeClient,
+    playerReady: !!innertubeClient?.session?.player,
+    signatureTimestamp: innertubeClient?.session?.player?.signature_timestamp || null,
     timestamp: new Date().toISOString(),
   });
 });
@@ -255,12 +300,16 @@ app.post('/video-info', async (c) => {
 
   console.log(`[TOKEN] Getting video info for ${videoId}`);
 
+  if (!innertubeClient) {
+    return c.json({ success: false, error: 'Service initializing' }, 503);
+  }
+
   try {
     const poToken = await getVideoPoToken(videoId);
     const visitorData = await getVisitorData();
-    const playerData = await getPlayerData();
+    const signatureTimestamp = innertubeClient.session.player?.signature_timestamp || 0;
 
-    const playerResponse = await fetchPlayerResponse(videoId, visitorData, poToken, playerData.signatureTimestamp);
+    const playerResponse = await fetchPlayerResponse(videoId, visitorData, poToken, signatureTimestamp);
 
     if (playerResponse.playabilityStatus?.status !== 'OK') {
       return c.json({
