@@ -171,23 +171,38 @@ app.post('/video-url', async (c) => {
     const player = innertubeClient.session.player;
     let url;
 
-    if (rawFormat.url) {
-      // URL exists but may need n-transform
-      url = await player.decipher(rawFormat.url);
-    } else if (rawFormat.signatureCipher) {
-      // Need to decipher the signature
-      url = await player.decipher(undefined, rawFormat.signatureCipher);
-    } else if (rawFormat.cipher) {
-      // Old cipher format
-      url = await player.decipher(undefined, undefined, rawFormat.cipher);
-    } else {
-      return c.json(
-        {
-          success: false,
-          error: 'No URL or cipher in format',
-        },
-        500
-      );
+    console.log(`[TOKEN] Player exists: ${!!player}`);
+    console.log(`[TOKEN] Player data exists: ${!!player?.data}`);
+    console.log(`[TOKEN] Format has url: ${!!rawFormat.url}`);
+    console.log(`[TOKEN] Format has signatureCipher: ${!!rawFormat.signatureCipher}`);
+    console.log(`[TOKEN] Format has cipher: ${!!rawFormat.cipher}`);
+
+    try {
+      if (rawFormat.url) {
+        // URL exists but may need n-transform
+        console.log(`[TOKEN] Deciphering URL (has url)`);
+        url = await player.decipher(rawFormat.url);
+      } else if (rawFormat.signatureCipher) {
+        // Need to decipher the signature
+        console.log(`[TOKEN] Deciphering signatureCipher`);
+        url = await player.decipher(undefined, rawFormat.signatureCipher);
+      } else if (rawFormat.cipher) {
+        // Old cipher format
+        console.log(`[TOKEN] Deciphering cipher`);
+        url = await player.decipher(undefined, undefined, rawFormat.cipher);
+      } else {
+        return c.json(
+          {
+            success: false,
+            error: 'No URL or cipher in format',
+          },
+          500
+        );
+      }
+      console.log(`[TOKEN] Decipher completed, URL length: ${url?.length || 0}`);
+    } catch (decipherError) {
+      console.error(`[TOKEN] Decipher error:`, decipherError);
+      throw decipherError;
     }
 
     if (!url) {

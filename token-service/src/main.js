@@ -18,23 +18,42 @@ console.log(`[INFO] Host: ${HOST}`);
 // Custom JavaScript evaluator for youtubei.js (needed for URL deciphering)
 // This runs the extracted signature/n-transform functions
 const jsEvaluator = async (data, env) => {
+  console.log('[EVAL] Running JS evaluator');
+  console.log('[EVAL] env keys:', Object.keys(env));
+
   const properties = [];
 
   if (env.n) {
+    console.log('[EVAL] Processing n parameter:', env.n.substring(0, 20) + '...');
     properties.push(`n: exportedVars.nFunction("${env.n}")`);
   }
 
   if (env.sig) {
+    console.log('[EVAL] Processing sig parameter:', env.sig.substring(0, 20) + '...');
     properties.push(`sig: exportedVars.sigFunction("${env.sig}")`);
   }
 
   const code = `${data.output}\nreturn { ${properties.join(", ")} }`;
 
-  return new Function(code)();
+  console.log('[EVAL] Code length:', code.length);
+  console.log('[EVAL] Exported vars in data:', data.exported);
+
+  try {
+    const fn = new Function(code);
+    const result = fn();
+    console.log('[EVAL] Result keys:', Object.keys(result));
+    if (result.n) console.log('[EVAL] Transformed n:', result.n.substring(0, 20) + '...');
+    if (result.sig) console.log('[EVAL] Transformed sig:', result.sig.substring(0, 20) + '...');
+    return result;
+  } catch (error) {
+    console.error('[EVAL] Error executing code:', error);
+    throw error;
+  }
 };
 
-// Set the custom evaluator
+// Set the custom evaluator BEFORE any youtubei.js imports that might use it
 Platform.shim.eval = jsEvaluator;
+console.log('[INFO] Custom JS evaluator set');
 
 // Create Hono app
 const app = new Hono();
@@ -77,16 +96,32 @@ async function initialize() {
   console.log('[INFO] PO token generator initialized');
 
   console.log('[INFO] Creating Innertube client...');
-  const innertubeClient = await Innertube.create({
-    retrieve_player: true,
-    enable_session_cache: false,
-    po_token: await getVideoPoToken('dQw4w9WgXcQ'), // Use a test video ID to get initial token
-  });
-  console.log('[INFO] Innertube client created');
-  console.log(`[INFO] Player signature timestamp: ${innertubeClient.session.player?.signature_timestamp}`);
+  console.log('[INFO] Platform.shim.eval is set:', typeof Platform.shim.eval === 'function');
 
-  // Pass the client to the routes
-  setInnertubeClient(innertubeClient);
+  try {
+    // Don't pass po_token here - we'll add it per-video after deciphering
+    const innertubeClient = await Innertube.create({
+      retrieve_player: true,
+      enable_session_cache: false,
+    });
+
+    console.log('[INFO] Innertube client created');
+    console.log('[INFO] Session exists:', !!innertubeClient.session);
+    console.log('[INFO] Player exists:', !!innertubeClient.session?.player);
+    console.log('[INFO] Player ID:', innertubeClient.session?.player?.player_id || 'none');
+    console.log('[INFO] Signature timestamp:', innertubeClient.session?.player?.signature_timestamp || 'none');
+    console.log('[INFO] Player data exists:', !!innertubeClient.session?.player?.data);
+
+    if (innertubeClient.session?.player?.data) {
+      console.log('[INFO] Player data exported:', innertubeClient.session.player.data.exported);
+    }
+
+    // Pass the client to the routes
+    setInnertubeClient(innertubeClient);
+  } catch (error) {
+    console.error('[ERROR] Failed to create Innertube client:', error);
+    throw error;
+  }
 }
 
 initialize()
