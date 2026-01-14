@@ -5,5 +5,7 @@ compatibility_flags = ["nodejs_compat"]
 
 [vars]
 ENVIRONMENT = "production"
-# URL to your Deno token service (change this when deployed)
-TOKEN_SERVICE_URL = "http://localhost:8788"
+TOKEN_SERVICE_URL = "https://freedom-production-21ce.up.railway.app"
+
+[dev]
+port = 8787

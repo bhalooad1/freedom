@@ -241,4 +241,125 @@ app.get('/status', (c) => {
   });
 });
 
+/**
+ * POST /token/video-info
+ * Get video metadata using PO token authentication
+ */
+app.post('/video-info', async (c) => {
+  const body = c.get('parsedBody') || (await c.req.json());
+  const videoId = body.videoId;
+
+  if (!videoId || !/^[a-zA-Z0-9_-]{11}$/.test(videoId)) {
+    return c.json({ success: false, error: 'Invalid video ID' }, 400);
+  }
+
+  console.log(`[TOKEN] Getting video info for ${videoId}`);
+
+  try {
+    const poToken = await getVideoPoToken(videoId);
+    const visitorData = await getVisitorData();
+    const playerData = await getPlayerData();
+
+    const playerResponse = await fetchPlayerResponse(videoId, visitorData, poToken, playerData.signatureTimestamp);
+
+    if (playerResponse.playabilityStatus?.status !== 'OK') {
+      return c.json({
+        success: false,
+        error: playerResponse.playabilityStatus?.reason || 'Video not playable',
+      }, 403);
+    }
+
+    const details = playerResponse.videoDetails || {};
+    const microformat = playerResponse.microformat?.playerMicroformatRenderer || {};
+
+    // Get related videos via next endpoint
+    let related = [];
+    try {
+      const nextResponse = await fetch('https://www.youtube.com/youtubei/v1/next?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': USER_AGENT,
+          'X-Goog-Visitor-Id': visitorData,
+        },
+        body: JSON.stringify({
+          videoId,
+          context: {
+            client: {
+              hl: 'en',
+              gl: 'US',
+              clientName: 'WEB',
+              clientVersion: CLIENT_VERSION,
+              visitorData,
+            },
+          },
+        }),
+      });
+
+      if (nextResponse.ok) {
+        const nextData = await nextResponse.json();
+
+        const extractRelated = (v) => ({
+          id: v.videoId,
+          title: v.title?.simpleText || v.title?.runs?.[0]?.text || '',
+          thumbnail: v.thumbnail?.thumbnails?.slice(-1)[0]?.url || '',
+          duration: v.lengthText?.simpleText || '',
+          views: v.viewCountText?.simpleText || v.shortViewCountText?.simpleText || '',
+          channel: v.shortBylineText?.runs?.[0]?.text || v.longBylineText?.runs?.[0]?.text || '',
+          uploaded: v.publishedTimeText?.simpleText || '',
+        });
+
+        const secondaryResults = nextData.contents?.twoColumnWatchNextResults
+          ?.secondaryResults?.secondaryResults?.results || [];
+
+        for (const item of secondaryResults) {
+          if (item.compactVideoRenderer) {
+            related.push(extractRelated(item.compactVideoRenderer));
+          }
+          if (item.itemSectionRenderer?.contents) {
+            for (const content of item.itemSectionRenderer.contents) {
+              if (content.compactVideoRenderer) {
+                related.push(extractRelated(content.compactVideoRenderer));
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.error('[TOKEN] Failed to get related videos:', e);
+    }
+
+    // Dedupe related
+    const seenIds = new Set();
+    related = related.filter(v => {
+      if (!v.id || seenIds.has(v.id) || v.id === videoId) return false;
+      seenIds.add(v.id);
+      return true;
+    }).slice(0, 10);
+
+    return c.json({
+      success: true,
+      data: {
+        id: videoId,
+        title: details.title || '',
+        description: details.shortDescription || '',
+        channel: details.author || '',
+        channelId: details.channelId || '',
+        views: parseInt(details.viewCount || '0').toLocaleString(),
+        likes: '',
+        uploaded: microformat.publishDate || '',
+        thumbnail: details.thumbnail?.thumbnails?.slice(-1)[0]?.url || '',
+        duration: details.lengthSeconds || '',
+        related,
+      },
+    });
+  } catch (error) {
+    console.error(`[TOKEN] Error getting video info for ${videoId}:`, error);
+    return c.json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    }, 500);
+  }
+});
+
 export default app;

@@ -3,6 +3,7 @@ import { cors } from 'hono/cors';
 
 interface Env {
   TOKEN_SERVICE_URL: string;
+  TOKEN_SERVICE_SECRET: string;
 }
 
 const app = new Hono<{ Bindings: Env }>();
@@ -91,6 +92,21 @@ app.get('/api/search', async (c) => {
   }
 });
 
+// HMAC signature for token service authentication
+async function signRequest(videoId: string, timestamp: number, secret: string): Promise<string> {
+  const message = `${videoId}:${timestamp}`;
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(message));
+  return btoa(String.fromCharCode(...new Uint8Array(signature)));
+}
+
 app.get('/api/video/:id', async (c) => {
   const id = c.req.param('id');
   console.log('[VIDEO] Fetching video:', id);
@@ -100,132 +116,50 @@ app.get('/api/video/:id', async (c) => {
     return c.json({ error: 'Invalid video ID' }, 400);
   }
 
-  try {
-    console.log('[VIDEO] Calling player endpoint...');
-    const data = await innertubeRequest('player', { videoId: id });
-    console.log('[VIDEO] Player response keys:', Object.keys(data));
+  const tokenServiceUrl = c.env.TOKEN_SERVICE_URL;
+  const secret = c.env.TOKEN_SERVICE_SECRET;
 
-    if (data.playabilityStatus?.status !== 'OK') {
-      console.log('[VIDEO] Playability error:', data.playabilityStatus);
+  if (!tokenServiceUrl || !secret) {
+    console.error('[VIDEO] Missing TOKEN_SERVICE_URL or TOKEN_SERVICE_SECRET');
+    return c.json({ error: 'Service not configured' }, 500);
+  }
+
+  try {
+    const timestamp = Date.now();
+    const signature = await signRequest(id, timestamp, secret);
+
+    console.log('[VIDEO] Calling token service for video info...');
+    const response = await fetch(`${tokenServiceUrl}/token/video-info`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Service-Key': secret,
+        'X-Request-Timestamp': timestamp.toString(),
+        'X-Request-Signature': signature,
+      },
+      body: JSON.stringify({ videoId: id, timestamp, signature }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({})) as any;
+      console.error('[VIDEO] Token service error:', response.status, errorData);
       return c.json({
-        error: 'Video not playable',
-        reason: data.playabilityStatus?.reason || 'Unknown'
+        error: errorData.error || 'Failed to get video',
+        reason: errorData.error || 'Unknown'
+      }, response.status as any);
+    }
+
+    const result = await response.json() as any;
+
+    if (!result.success || !result.data) {
+      return c.json({
+        error: result.error || 'Failed to get video',
+        reason: result.error || 'Unknown'
       }, 403);
     }
 
-    const details = data.videoDetails || {};
-    console.log('[VIDEO] Got details for:', details.title);
-
-    const microformat = data.microformat?.playerMicroformatRenderer || {};
-
-    // Fetch related videos
-    console.log('[VIDEO] Calling next endpoint for related...');
-    let related: any[] = [];
-
-    try {
-      const relatedData = await innertubeRequest('next', { videoId: id });
-
-      // Helper to extract video from compactVideoRenderer
-      const extractRelated = (v: any) => ({
-        id: v.videoId,
-        title: v.title?.simpleText || v.title?.runs?.[0]?.text || '',
-        thumbnail: v.thumbnail?.thumbnails?.slice(-1)[0]?.url || '',
-        duration: v.lengthText?.simpleText || '',
-        views: v.viewCountText?.simpleText || v.shortViewCountText?.simpleText || '',
-        channel: v.shortBylineText?.runs?.[0]?.text || v.longBylineText?.runs?.[0]?.text || '',
-        uploaded: v.publishedTimeText?.simpleText || '',
-      });
-
-      // Strategy 1: twoColumnWatchNextResults (desktop)
-      const secondaryResults = relatedData.contents?.twoColumnWatchNextResults
-        ?.secondaryResults?.secondaryResults?.results || [];
-
-      for (const item of secondaryResults) {
-        if (item.compactVideoRenderer) {
-          related.push(extractRelated(item.compactVideoRenderer));
-        }
-        // Also check for itemSectionRenderer containing videos
-        if (item.itemSectionRenderer?.contents) {
-          for (const content of item.itemSectionRenderer.contents) {
-            if (content.compactVideoRenderer) {
-              related.push(extractRelated(content.compactVideoRenderer));
-            }
-          }
-        }
-      }
-
-      // Strategy 2: singleColumnWatchNextResults (mobile)
-      const singleResults = relatedData.contents?.singleColumnWatchNextResults
-        ?.results?.results?.contents || [];
-
-      for (const item of singleResults) {
-        if (item.compactVideoRenderer) {
-          related.push(extractRelated(item.compactVideoRenderer));
-        }
-        if (item.itemSectionRenderer?.contents) {
-          for (const content of item.itemSectionRenderer.contents) {
-            if (content.compactVideoRenderer) {
-              related.push(extractRelated(content.compactVideoRenderer));
-            }
-          }
-        }
-      }
-
-      console.log('[VIDEO] Found', related.length, 'related videos from next endpoint');
-
-      // Fallback: If no related found, try search with video title
-      if (related.length === 0 && details.title) {
-        console.log('[VIDEO] No related from next, trying search fallback');
-        const searchQuery = details.title.split(' ').slice(0, 3).join(' ');
-        const searchData = await innertubeRequest('search', { query: searchQuery });
-
-        const searchContents = searchData.contents?.twoColumnSearchResultsRenderer?.primaryContents
-          ?.sectionListRenderer?.contents?.[0]?.itemSectionRenderer?.contents || [];
-
-        related = searchContents
-          .filter((item: any) => item.videoRenderer && item.videoRenderer.videoId !== id)
-          .slice(0, 10)
-          .map((item: any) => {
-            const v = item.videoRenderer;
-            return {
-              id: v.videoId,
-              title: v.title?.runs?.[0]?.text || '',
-              thumbnail: v.thumbnail?.thumbnails?.slice(-1)[0]?.url || '',
-              duration: v.lengthText?.simpleText || '',
-              views: v.viewCountText?.simpleText || '',
-              channel: v.ownerText?.runs?.[0]?.text || '',
-              uploaded: v.publishedTimeText?.simpleText || '',
-            };
-          });
-
-        console.log('[VIDEO] Search fallback found', related.length, 'related videos');
-      }
-    } catch (relatedError: any) {
-      console.error('[VIDEO] Failed to fetch related:', relatedError.message);
-      // Continue without related videos
-    }
-
-    // Dedupe and limit related videos
-    const seenIds = new Set<string>();
-    related = related.filter(v => {
-      if (!v.id || seenIds.has(v.id) || v.id === id) return false;
-      seenIds.add(v.id);
-      return true;
-    }).slice(0, 10);
-
-    return c.json({
-      id,
-      title: details.title || '',
-      description: details.shortDescription || '',
-      channel: details.author || '',
-      channelId: details.channelId || '',
-      views: parseInt(details.viewCount || '0').toLocaleString(),
-      likes: '',
-      uploaded: microformat.publishDate || '',
-      thumbnail: details.thumbnail?.thumbnails?.slice(-1)[0]?.url || '',
-      duration: details.lengthSeconds || '',
-      related,
-    });
+    console.log('[VIDEO] Got video info:', result.data.title);
+    return c.json(result.data);
   } catch (error: any) {
     console.error('[VIDEO] Error:', error.message);
     return c.json({ error: 'Failed to get video', details: error.message }, 500);

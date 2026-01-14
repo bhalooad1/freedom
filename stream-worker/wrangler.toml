@@ -1,0 +1,26 @@
+name = "freedom-stream"
+main = "src/index.ts"
+compatibility_date = "2024-05-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Production variables (TOKEN_SERVICE_SECRET is set via `wrangler secret`)
+[vars]
+ENVIRONMENT = "production"
+TOKEN_SERVICE_URL = "https://freedom-production-21ce.up.railway.app"
+
+# KV namespace for caching video URLs (optional but recommended)
+# Create with: wrangler kv:namespace create VIDEO_CACHE
+# Then uncomment and update the id below
+# [[kv_namespaces]]
+# binding = "VIDEO_CACHE"
+# id = "your-kv-namespace-id"
+
+# Local development overrides
+[env.dev]
+name = "freedom-stream-dev"
+[env.dev.vars]
+ENVIRONMENT = "development"
+TOKEN_SERVICE_URL = "http://localhost:8790"
+
+[dev]
+port = 8789
