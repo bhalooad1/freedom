@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { Env, VideoUrlData } from './types';
 import { getCachedVideo, cacheVideo, invalidateVideo } from './cache';
-import { getVideoUrl } from './token-client';
+import { getVideoData } from './innertube';
 import { proxyVideoStream, handleCors } from './proxy';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -51,22 +51,37 @@ app.get('/stream/:id', async (c) => {
     console.log(`[STREAM] Using cached URL for ${videoId}`);
   }
 
-  // Step 2: If not cached, call token service
+  // Step 2: If not cached, get video data using local deciphering
   if (!videoData) {
-    console.log(`[STREAM] Fetching from token service for ${videoId}`);
-    const tokenResponse = await getVideoUrl(c.env, videoId);
+    console.log(`[STREAM] Getting video data for ${videoId} (local decipher)`);
 
-    if (!tokenResponse.success || !tokenResponse.data) {
+    try {
+      const data = await getVideoData(
+        videoId,
+        c.env.TOKEN_SERVICE_URL,
+        c.env.TOKEN_SERVICE_SECRET
+      );
+
+      // Convert to VideoUrlData format
+      videoData = {
+        url: data.url,
+        pot: data.pot,
+        host: new URL(data.url).hostname,
+        mimeType: data.mimeType,
+        qualityLabel: data.qualityLabel,
+        contentLength: data.contentLength,
+        expiresAt: Date.now() + 6 * 60 * 60 * 1000, // 6 hours
+      };
+
+      // Cache the result
+      await cacheVideo(c.env, videoId, videoData);
+    } catch (error) {
+      console.error(`[STREAM] Error getting video data:`, error);
       return c.json(
-        { error: tokenResponse.error || 'Failed to get video URL' },
+        { error: error instanceof Error ? error.message : 'Failed to get video URL' },
         502
       );
     }
-
-    videoData = tokenResponse.data;
-
-    // Cache the result
-    await cacheVideo(c.env, videoId, videoData);
   }
 
   // Step 3: Proxy the video stream
@@ -80,11 +95,28 @@ app.get('/stream/:id', async (c) => {
     // Retry once with fresh URL
     if (cached) {
       console.log(`[STREAM] Retrying with fresh URL for ${videoId}`);
-      const tokenResponse = await getVideoUrl(c.env, videoId);
 
-      if (tokenResponse.success && tokenResponse.data) {
-        await cacheVideo(c.env, videoId, tokenResponse.data);
-        return proxyVideoStream(c.req.raw, tokenResponse.data);
+      try {
+        const data = await getVideoData(
+          videoId,
+          c.env.TOKEN_SERVICE_URL,
+          c.env.TOKEN_SERVICE_SECRET
+        );
+
+        const freshVideoData: VideoUrlData = {
+          url: data.url,
+          pot: data.pot,
+          host: new URL(data.url).hostname,
+          mimeType: data.mimeType,
+          qualityLabel: data.qualityLabel,
+          contentLength: data.contentLength,
+          expiresAt: Date.now() + 6 * 60 * 60 * 1000,
+        };
+
+        await cacheVideo(c.env, videoId, freshVideoData);
+        return proxyVideoStream(c.req.raw, freshVideoData);
+      } catch (error) {
+        console.error(`[STREAM] Retry failed:`, error);
       }
     }
   }

@@ -9,8 +9,17 @@ const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
 function buildVideoUrl(data: VideoUrlData): string {
   const url = new URL(data.url);
 
-  // Add PO token if present
-  if (data.pot) {
+  // IMPORTANT: Remove IP-related parameters - YouTube ties URLs to specific IPs
+  // The URL was generated from Railway's IP, but we're fetching from Cloudflare's IP
+  const ipParams = ['ip', 'ipbits', 'source'];
+  for (const param of ipParams) {
+    if (url.searchParams.has(param)) {
+      url.searchParams.delete(param);
+    }
+  }
+
+  // Add PO token if present (should already be in URL from token service, but ensure it's there)
+  if (data.pot && !url.searchParams.has('pot')) {
     url.searchParams.set('pot', data.pot);
   }
 
@@ -41,38 +50,85 @@ function parseRangeHeader(
 
 /**
  * Proxy video stream from YouTube to client
+ * Uses HEAD-then-POST pattern like the working stream service
  */
 export async function proxyVideoStream(
   request: Request,
   videoData: VideoUrlData
 ): Promise<Response> {
-  const videoUrl = buildVideoUrl(videoData);
+  const baseUrl = buildVideoUrl(videoData);
   const rangeHeader = request.headers.get('Range');
 
+  // Parse range for query parameter
+  let rangeStart = 0;
+  let rangeEnd: number | undefined;
+  if (rangeHeader) {
+    const match = rangeHeader.match(/bytes=(\d*)-(\d*)/);
+    if (match) {
+      rangeStart = match[1] ? parseInt(match[1], 10) : 0;
+      rangeEnd = match[2] ? parseInt(match[2], 10) : undefined;
+    }
+  }
+
+  // Add range as query parameter (like the working stream service does)
+  const url = new URL(baseUrl);
+  if (rangeHeader) {
+    url.searchParams.set('range', `${rangeStart}-${rangeEnd || ''}`);
+  }
+  const videoUrl = url.toString();
+
   console.log(`[PROXY] Video URL: ${videoUrl.substring(0, 200)}...`);
-  console.log(`[PROXY] Fetching from YouTube, Range: ${rangeHeader || 'none'}`);
+  console.log(`[PROXY] Range: ${rangeHeader || 'none'}`);
 
   // Build headers for YouTube request
   const headers: HeadersInit = {
     'User-Agent': USER_AGENT,
     'Accept': '*/*',
+    'Accept-Encoding': 'gzip, deflate, br',
     'Accept-Language': 'en-US,en;q=0.9',
     'Origin': 'https://www.youtube.com',
     'Referer': 'https://www.youtube.com/',
   };
 
-  // Forward Range header if present
-  if (rangeHeader) {
-    headers['Range'] = rangeHeader;
-  }
-
   try {
-    const response = await fetch(videoUrl, {
-      method: 'GET',
+    // Step 1: HEAD request to follow redirects (like working stream service)
+    let finalUrl = videoUrl;
+    for (let i = 0; i < 5; i++) {
+      const headResponse = await fetch(finalUrl, {
+        method: 'HEAD',
+        headers,
+        redirect: 'manual',
+      });
+
+      console.log(`[PROXY] HEAD ${i + 1}: ${headResponse.status}`);
+
+      if (headResponse.status === 403) {
+        const errorBody = await headResponse.text();
+        console.error(`[PROXY] HEAD 403 error`);
+        return new Response(`YouTube error: 403`, { status: 403 });
+      }
+
+      const location = headResponse.headers.get('Location');
+      if (location) {
+        console.log(`[PROXY] Redirect to: ${location.substring(0, 100)}...`);
+        finalUrl = location;
+        continue;
+      }
+
+      // No redirect, we have the final URL
+      break;
+    }
+
+    console.log(`[PROXY] Final URL resolved, fetching with POST...`);
+
+    // Step 2: POST request with protobuf body (like working stream service)
+    const response = await fetch(finalUrl, {
+      method: 'POST',
       headers,
+      body: new Uint8Array([0x78, 0]), // protobuf: { 15: 0 }
     });
 
-    console.log(`[PROXY] YouTube responded with ${response.status}`);
+    console.log(`[PROXY] POST response: ${response.status}`);
 
     // Handle error responses
     if (!response.ok && response.status !== 206) {

@@ -288,6 +288,44 @@ app.post('/refresh', async (c) => {
 });
 
 /**
+ * POST /token/po-token
+ * Get just the PO token and visitor data (no deciphering)
+ * Used by Cloudflare Worker to get token, then decipher locally
+ */
+app.post('/po-token', async (c) => {
+  const body = c.get('parsedBody') || (await c.req.json());
+  const videoId = body.videoId;
+
+  if (!videoId || !/^[a-zA-Z0-9_-]{11}$/.test(videoId)) {
+    return c.json({ success: false, error: 'Invalid video ID' }, 400);
+  }
+
+  console.log(`[TOKEN] Getting PO token for ${videoId}`);
+
+  try {
+    const poToken = await getVideoPoToken(videoId);
+    const visitorData = await getVisitorData();
+
+    return c.json({
+      success: true,
+      data: {
+        poToken,
+        visitorData,
+      },
+    });
+  } catch (error) {
+    console.error(`[TOKEN] Error getting PO token for ${videoId}:`, error);
+    return c.json(
+      {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      },
+      500
+    );
+  }
+});
+
+/**
  * GET /token/status
  * Check token service status
  */
