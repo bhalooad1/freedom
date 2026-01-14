@@ -1,0 +1,14 @@
+[server]
+port = 8790
+host = "0.0.0.0"
+secret_key = "your-secret-key-here"
+
+[cache]
+# Cache player.js for this many hours
+player_cache_hours = 24
+
+[potoken]
+# Enable PO token generation
+enabled = true
+# Refresh interval in minutes
+refresh_minutes = 5

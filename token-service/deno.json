@@ -1,0 +1,17 @@
+{
+  "tasks": {
+    "dev": "deno run --allow-net --allow-env --allow-read --allow-write=/var/tmp/youtubei.js --watch src/main.ts",
+    "start": "deno run --allow-net --allow-env --allow-read --allow-write=/var/tmp/youtubei.js src/main.ts"
+  },
+  "imports": {
+    "@hono/hono": "jsr:@hono/hono@^4.0.0",
+    "meriyah": "npm:meriyah@^6.0.0",
+    "jsdom": "npm:jsdom@^24.0.0",
+    "bgutils": "npm:bgutils-js@^3.1.0",
+    "youtubei.js": "npm:youtubei.js@^13.0.0"
+  },
+  "compilerOptions": {
+    "strict": true,
+    "lib": ["deno.window"]
+  }
+}
