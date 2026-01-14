@@ -1,18 +1,18 @@
-FROM denoland/deno:2.1.4
+FROM node:20-slim
 
 WORKDIR /app
 
-# Copy all files
+# Copy package files
+COPY package.json ./
+
+# Install dependencies
+RUN npm install
+
+# Copy source code
 COPY . .
 
-# Cache dependencies
-RUN deno cache src/main.ts
-
-# Create temp directory for youtubei.js cache
-RUN mkdir -p /var/tmp/youtubei.js
-
-# Expose port (Railway will set PORT env var)
-EXPOSE 8790
+# Expose port
+EXPOSE 8080
 
 # Run the app
-CMD ["deno", "run", "--allow-net", "--allow-env", "--allow-read", "--allow-write=/var/tmp/youtubei.js", "src/main.ts"]
+CMD ["npm", "start"]
