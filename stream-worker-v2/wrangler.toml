@@ -1,0 +1,15 @@
+name = "freedom-stream-v2"
+main = "src/index.ts"
+compatibility_date = "2024-05-01"
+compatibility_flags = ["nodejs_compat"]
+
+# KV namespace for visitor data cache
+[[kv_namespaces]]
+binding = "VISITOR_CACHE"
+id = "7d6b68b54d604e00bb0ef1a5b7238736"
+
+[vars]
+ENVIRONMENT = "production"
+
+[dev]
+port = 8791

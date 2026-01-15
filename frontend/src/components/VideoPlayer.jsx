@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { getStreamUrl } from '../api';
+import { getStreamUrl, isServerlessMode } from '../api';
 
 export default function VideoPlayer({ videoId }) {
   const videoRef = useRef(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const retryCountRef = useRef(0);
-  const maxRetries = 4;
+  const maxRetries = isServerlessMode() ? 10 : 4;
 
   useEffect(() => {
     if (!videoRef.current || !videoId) return;

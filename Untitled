@@ -1,1 +1,0 @@
-cd /Users/adambhaloo/Desktop/Projects/freedom/worker && npm install && npx wrangler deploy

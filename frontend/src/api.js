@@ -1,15 +1,18 @@
 // API Configuration
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8787';
 
-// Stream Worker URL
-const STREAM_BASE = import.meta.env.VITE_STREAM_WORKER_URL || 'http://localhost:8789';
+// Stream Worker URL (v2 - serverless with Android client)
+const STREAM_BASE = import.meta.env.VITE_STREAM_WORKER_URL || 'http://localhost:8791';
 
-// Log configuration in development
-if (import.meta.env.DEV) {
-  console.log('[API] Configuration:');
-  console.log(`  API Base: ${API_BASE}`);
-  console.log(`  Stream Base: ${STREAM_BASE}`);
-}
+// Use serverless mode (v2) by default, can be overridden
+const USE_SERVERLESS = import.meta.env.VITE_USE_SERVERLESS !== 'false';
+
+// Always log configuration for debugging
+console.log('%c[API] Configuration:', 'color: #00ff00; font-weight: bold');
+console.log(`  API Base: ${API_BASE}`);
+console.log(`  Stream Base: ${STREAM_BASE}`);
+console.log(`  Serverless Mode: ${USE_SERVERLESS}`);
+console.log(`  Environment: ${import.meta.env.MODE}`);
 
 export async function search(query) {
   const res = await fetch(`${API_BASE}/api/search?q=${encodeURIComponent(query)}`);
@@ -18,10 +21,20 @@ export async function search(query) {
 }
 
 export async function getVideo(id) {
-  // Video metadata comes from the API worker
-  const res = await fetch(`${API_BASE}/api/video/${id}`);
-  if (!res.ok) throw new Error('Failed to load video');
-  return res.json();
+  if (USE_SERVERLESS) {
+    // Serverless mode: get metadata from stream-worker-v2
+    const res = await fetch(`${STREAM_BASE}/info/${id}`);
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.reason || error.error || 'Failed to load video');
+    }
+    return res.json();
+  } else {
+    // Railway mode: get metadata directly from Railway
+    const res = await fetch(`${STREAM_BASE}/api/video/${id}`);
+    if (!res.ok) throw new Error('Failed to load video');
+    return res.json();
+  }
 }
 
 export async function getTrending() {
@@ -38,8 +51,30 @@ export function getProxyImageUrl(url) {
   return `${API_BASE}/api/proxy-image?url=${encodeURIComponent(url)}`;
 }
 
+/**
+ * Get stream URL
+ */
 export function getStreamUrl(id) {
-  return `${STREAM_BASE}/stream/${id}`;
+  if (USE_SERVERLESS) {
+    return `${STREAM_BASE}/a/${id}`;
+  } else {
+    // Railway mode: call Railway directly
+    return `${STREAM_BASE}/stream/${id}`;
+  }
+}
+
+/**
+ * Get stream URL with client-generated token (legacy, kept for compatibility)
+ */
+export function getStreamUrlWithToken(id, poToken, visitorData) {
+  return getStreamUrl(id);
+}
+
+/**
+ * Check if serverless mode (v2) is enabled
+ */
+export function isServerlessMode() {
+  return USE_SERVERLESS;
 }
 
 // Export for debugging/testing
@@ -47,5 +82,6 @@ export function getConfig() {
   return {
     apiBase: API_BASE,
     streamBase: STREAM_BASE,
+    serverless: USE_SERVERLESS,
   };
 }
