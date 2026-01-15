@@ -16,15 +16,10 @@ export default function VideoPlayer({ videoId }) {
     retryCountRef.current = 0;
 
     const video = videoRef.current;
-
-    // Load video directly (no warmup HEAD request to reduce YouTube API calls)
-    const streamUrl = getStreamUrl(videoId);
-    console.log('[VideoPlayer] Loading stream:', streamUrl);
-    video.src = streamUrl;
+    video.src = getStreamUrl(videoId);
 
     const onCanPlay = () => setLoading(false);
     const onError = () => {
-      // Retry with increasing delays for cold starts
       if (retryCountRef.current < maxRetries) {
         retryCountRef.current++;
         const delay = retryCountRef.current * 1500;

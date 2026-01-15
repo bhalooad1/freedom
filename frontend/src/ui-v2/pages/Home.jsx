@@ -13,32 +13,26 @@ export default function Home() {
 
   useEffect(() => {
     const fetchTrending = async () => {
-      console.log('[Home] Fetching trending videos...');
       try {
         const data = await getTrending();
-        console.log('[Home] Got trending:', data.videos?.length, 'videos');
         setTrending(data.videos || []);
       } catch (err) {
-        console.error('[Home] Error:', err.message);
         setError(err.message);
       } finally {
         setLoading(false);
       }
     };
-
     fetchTrending();
   }, []);
 
   return (
     <Layout showSearch={true}>
       <div className="px-4 lg:px-6">
-        {/* Category chips */}
         <CategoryChips
           selected={selectedCategory}
           onSelect={setSelectedCategory}
         />
 
-        {/* Video grid */}
         <div className="pb-8">
           {loading && (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
