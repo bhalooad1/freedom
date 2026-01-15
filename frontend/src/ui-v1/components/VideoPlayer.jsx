@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { getStreamUrl, isServerlessMode } from '../api';
+import { getStreamUrl, isServerlessMode } from '../../api';
 
 export default function VideoPlayer({ videoId }) {
   const videoRef = useRef(null);

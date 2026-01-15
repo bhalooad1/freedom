@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import Header from '../components/Header';
 import VideoCard from '../components/VideoCard';
 import Footer from '../components/Footer';
-import { search, getThumbnailUrl, getProxyImageUrl } from '../api';
+import { search, getThumbnailUrl, getProxyImageUrl } from '../../api';
 
 export default function Results() {
   const [searchParams] = useSearchParams();

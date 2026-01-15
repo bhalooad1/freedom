@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import SearchBar from '../components/SearchBar';
 import VideoCard from '../components/VideoCard';
 import Footer from '../components/Footer';
-import { getTrending } from '../api';
+import { getTrending } from '../../api';
 
 export default function Home() {
   const [trending, setTrending] = useState([]);

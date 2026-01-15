@@ -21,19 +21,25 @@ export async function search(query) {
 }
 
 export async function getVideo(id) {
-  if (USE_SERVERLESS) {
-    // Serverless mode: get metadata from stream-worker-v2
-    const res = await fetch(`${STREAM_BASE}/info/${id}`);
+  const url = USE_SERVERLESS ? `${STREAM_BASE}/info/${id}` : `${STREAM_BASE}/api/video/${id}`;
+  console.log(`%c[API] Fetching video metadata: ${url}`, 'color: #00bfff');
+
+  try {
+    const res = await fetch(url);
+    console.log(`%c[API] Response status: ${res.status}`, res.ok ? 'color: #00ff00' : 'color: #ff0000');
+
     if (!res.ok) {
       const error = await res.json().catch(() => ({}));
+      console.error('[API] Error response:', error);
       throw new Error(error.reason || error.error || 'Failed to load video');
     }
-    return res.json();
-  } else {
-    // Railway mode: get metadata directly from Railway
-    const res = await fetch(`${STREAM_BASE}/api/video/${id}`);
-    if (!res.ok) throw new Error('Failed to load video');
-    return res.json();
+
+    const data = await res.json();
+    console.log('%c[API] Video loaded:', 'color: #00ff00', data.title);
+    return data;
+  } catch (err) {
+    console.error('%c[API] Fetch failed:', 'color: #ff0000', err.message);
+    throw err;
   }
 }
 
@@ -58,7 +64,7 @@ export function getStreamUrl(id) {
   if (USE_SERVERLESS) {
     return `${STREAM_BASE}/a/${id}`;
   } else {
-    // Railway mode: call Railway directly
+    // Railway mode: stream directly from Railway stream service
     return `${STREAM_BASE}/stream/${id}`;
   }
 }

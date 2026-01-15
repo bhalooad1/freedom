@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { getThumbnailUrl, getProxyImageUrl } from '../api';
+import { getThumbnailUrl, getProxyImageUrl } from '../../api';
 
 export default function VideoCard({ video, compact = false }) {
   const thumbnailUrl = video.thumbnail?.startsWith('http')

@@ -18,6 +18,16 @@ interface VisitorCache {
   timestamp: number;
 }
 
+interface RelatedVideo {
+  id: string;
+  title: string;
+  thumbnail: string;
+  duration: string;
+  views: string;
+  channel: string;
+  uploaded: string;
+}
+
 interface VideoMetadata {
   id: string;
   title: string;
@@ -28,6 +38,7 @@ interface VideoMetadata {
   views: string;
   thumbnail: string;
   uploadDate: string;
+  related?: RelatedVideo[];
 }
 
 interface VideoFormat {
@@ -117,6 +128,125 @@ async function getVisitorData(env: Env): Promise<string> {
   }
 
   return visitorData;
+}
+
+// ============== Related Videos ==============
+
+async function fetchRelatedVideos(videoId: string, visitorData: string): Promise<RelatedVideo[]> {
+  try {
+    const response = await fetch(
+      `https://www.youtube.com/youtubei/v1/next?key=${ANDROID_CLIENT.apiKey}&prettyPrint=false`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': ANDROID_CLIENT.userAgent,
+          'X-Goog-Visitor-Id': visitorData,
+        },
+        body: JSON.stringify({
+          videoId,
+          context: {
+            client: {
+              clientName: 'WEB',
+              clientVersion: '2.20240101.00.00',
+              hl: 'en',
+              gl: 'US',
+            },
+          },
+        }),
+      }
+    );
+
+    const data = await response.json() as any;
+
+    // Extract related videos from secondaryResults
+    const results = data.contents?.twoColumnWatchNextResults?.secondaryResults?.secondaryResults?.results || [];
+    const related: RelatedVideo[] = [];
+
+    for (const item of results) {
+      // Try new lockupViewModel format first (YouTube's current format)
+      const lockup = item.lockupViewModel;
+      if (lockup?.contentId) {
+        const meta = lockup.metadata?.lockupMetadataViewModel;
+        const titleObj = meta?.title;
+        const metaObj = meta?.metadata?.contentMetadataViewModel;
+
+        // Extract duration from overlays
+        let duration = '';
+        const overlays = lockup.contentImage?.thumbnailViewModel?.overlays || [];
+        for (const overlay of overlays) {
+          const badge = overlay.thumbnailOverlayBadgeViewModel?.thumbnailBadges?.[0]?.thumbnailBadgeViewModel;
+          if (badge?.text) {
+            duration = badge.text;
+            break;
+          }
+        }
+
+        // Extract views and channel from metadata rows
+        let views = '';
+        let channel = '';
+        const rows = metaObj?.metadataRows || [];
+        for (const row of rows) {
+          for (const part of row.metadataParts || []) {
+            const text = part.text?.content || '';
+            if (text.includes('views')) {
+              views = text;
+            } else if (!channel && text && !text.includes('ago')) {
+              channel = text;
+            }
+          }
+        }
+
+        related.push({
+          id: lockup.contentId,
+          title: titleObj?.content || '',
+          thumbnail: `https://i.ytimg.com/vi/${lockup.contentId}/hqdefault.jpg`,
+          duration,
+          views,
+          channel,
+          uploaded: '',
+        });
+
+        if (related.length >= 10) break;
+        continue;
+      }
+
+      // Fallback: try old compactVideoRenderer format
+      const renderer = item.compactVideoRenderer;
+      if (!renderer?.videoId) continue;
+
+      // Parse duration
+      let duration = '';
+      if (renderer.lengthText?.simpleText) {
+        duration = renderer.lengthText.simpleText;
+      }
+
+      // Parse views
+      let views = '';
+      if (renderer.viewCountText?.simpleText) {
+        views = renderer.viewCountText.simpleText;
+      } else if (renderer.viewCountText?.runs) {
+        views = renderer.viewCountText.runs.map((r: any) => r.text).join('');
+      }
+
+      related.push({
+        id: renderer.videoId,
+        title: renderer.title?.simpleText || renderer.title?.runs?.[0]?.text || '',
+        thumbnail: renderer.thumbnail?.thumbnails?.slice(-1)[0]?.url || `https://i.ytimg.com/vi/${renderer.videoId}/hqdefault.jpg`,
+        duration,
+        views,
+        channel: renderer.shortBylineText?.runs?.[0]?.text || '',
+        uploaded: renderer.publishedTimeText?.simpleText || '',
+      });
+
+      if (related.length >= 10) break;
+    }
+
+    return related;
+  } catch (e) {
+    console.error('[RELATED] Error fetching related videos:', e);
+    return [];
+  }
 }
 
 // ============== YouTube API ==============
@@ -246,8 +376,15 @@ async function handleInfo(videoId: string, env: Env): Promise<Response> {
 
   console.log(`[INFO] Success: ${success.data.metadata.title}`);
 
-  // Return metadata only
-  return new Response(JSON.stringify(success.data.metadata), {
+  // Fetch related videos in parallel (don't block on failure)
+  const related = await fetchRelatedVideos(videoId, visitorData);
+  console.log(`[INFO] Found ${related.length} related videos`);
+
+  // Return metadata with related videos
+  return new Response(JSON.stringify({
+    ...success.data.metadata,
+    related,
+  }), {
     headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
   });
 }

@@ -4,7 +4,7 @@ import Header from '../components/Header';
 import VideoPlayer from '../components/VideoPlayer';
 import VideoCard from '../components/VideoCard';
 import Footer from '../components/Footer';
-import { getVideo } from '../api';
+import { getVideo } from '../../api';
 
 function formatDate(dateString) {
   if (!dateString) return '';
