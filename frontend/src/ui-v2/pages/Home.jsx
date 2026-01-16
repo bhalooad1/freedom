@@ -1,36 +1,80 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Layout from '../components/Layout';
 import CategoryChips from '../components/CategoryChips';
 import VideoCard from '../components/VideoCard';
 import Footer from '../components/Footer';
-import { getTrending } from '../../api';
+import { getTrending, search } from '../../api';
+
+// Search queries for each category
+const categoryQueries = {
+  news: 'breaking news today',
+  music: 'music videos trending',
+  gaming: 'gaming videos',
+  sports: 'sports highlights',
+  tech: 'technology news',
+  entertainment: 'entertainment tonight',
+  education: 'educational videos',
+  science: 'science documentary',
+  comedy: 'comedy videos funny',
+};
 
 export default function Home() {
-  const [trending, setTrending] = useState([]);
+  const [videos, setVideos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState('all');
 
-  useEffect(() => {
-    const fetchTrending = async () => {
-      try {
+  // Cache for category results (persists until page refresh)
+  const cache = useRef({ all: null });
+
+  const fetchVideos = async (category) => {
+    // Check cache first
+    if (cache.current[category]) {
+      setVideos(cache.current[category]);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      let results;
+
+      if (category === 'all') {
         const data = await getTrending();
-        setTrending(data.videos || []);
-      } catch (err) {
-        setError(err.message);
-      } finally {
-        setLoading(false);
+        results = data.videos || [];
+      } else {
+        const query = categoryQueries[category] || category;
+        const data = await search(query);
+        results = data.results || [];
       }
-    };
-    fetchTrending();
-  }, []);
+
+      // Cache the results
+      cache.current[category] = results;
+      setVideos(results);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Fetch on mount and when category changes
+  useEffect(() => {
+    fetchVideos(selectedCategory);
+  }, [selectedCategory]);
+
+  const handleCategorySelect = (category) => {
+    setSelectedCategory(category);
+  };
 
   return (
     <Layout showSearch={true}>
       <div className="px-4 lg:px-6">
         <CategoryChips
           selected={selectedCategory}
-          onSelect={setSelectedCategory}
+          onSelect={handleCategorySelect}
         />
 
         <div className="pb-8">
@@ -56,7 +100,7 @@ export default function Home() {
             <div className="flex flex-col items-center justify-center py-16">
               <p className="text-freedom-muted mb-4">{error}</p>
               <button
-                onClick={() => window.location.reload()}
+                onClick={() => fetchVideos(selectedCategory)}
                 className="px-4 py-2 bg-freedom-surface rounded-lg text-white hover:bg-freedom-border transition-colors"
               >
                 Try again
@@ -66,9 +110,15 @@ export default function Home() {
 
           {!loading && !error && (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {trending.map((video) => (
+              {videos.map((video) => (
                 <VideoCard key={video.id} video={video} />
               ))}
+            </div>
+          )}
+
+          {!loading && !error && videos.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-16">
+              <p className="text-freedom-muted">No videos found</p>
             </div>
           )}
         </div>
